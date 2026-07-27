@@ -25,7 +25,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/beon-tech/ai-score.git"
+    "url": "git+https://github.com/BEON-Tech/ai-score.git"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
