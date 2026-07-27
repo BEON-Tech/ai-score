@@ -28,7 +28,7 @@
     "url": "git+https://github.com/BEON-Tech/ai-score.git"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
-    "typescript": "^5.6.0"
+    "@types/node": "^24.13.3",
+    "typescript": "^7.0.2"
   }
 }
