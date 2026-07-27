@@ -1,11 +1,11 @@
 # Wire format — `beon.ai-score.v1`
 
-This document is the complete specification of what `@beon/ai-score` sends over
+This document is the complete specification of what `@beon-tech/ai-score` sends over
 the network. If a field is not listed here, it is not collected. You can verify
 this yourself at any time:
 
 ```sh
-npx @beon/ai-score --dry-run --audit   # prints the exact payload, sends nothing
+npx @beon-tech/ai-score --dry-run --audit   # prints the exact payload, sends nothing
 ```
 
 ## Guarantees

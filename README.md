@@ -1,4 +1,4 @@
-# @beon/ai-score
+# @beon-tech/ai-score
 
 One-shot CLI that measures how an engineer uses AI coding tools. It scans the
 session data that coding harnesses already keep on your machine, normalizes it
@@ -6,9 +6,9 @@ into structural metadata, and submits it to Beon's scoring service, where the
 score is computed server-side.
 
 ```sh
-npx @beon/ai-score              # scan, summarize, confirm, upload
-npx @beon/ai-score --dry-run    # scan and summarize only — never touches the network
-npx @beon/ai-score --audit      # print the exact JSON that would be uploaded
+npx @beon-tech/ai-score              # scan, summarize, confirm, upload
+npx @beon-tech/ai-score --dry-run    # scan and summarize only — never touches the network
+npx @beon-tech/ai-score --audit      # print the exact JSON that would be uploaded
 ```
 
 ## Supported harnesses
@@ -34,8 +34,8 @@ listed there is not collected.
 You can hold the tool to that promise before anything is sent:
 
 ```sh
-npx @beon/ai-score --dry-run --audit          # inspect payload in the terminal
-npx @beon/ai-score --dry-run --out report.json # or write it to a file
+npx @beon-tech/ai-score --dry-run --audit          # inspect payload in the terminal
+npx @beon-tech/ai-score --dry-run --out report.json # or write it to a file
 ```
 
 Uploading always requires explicit confirmation (interactive `y/N`, or an

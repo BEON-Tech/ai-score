@@ -15,7 +15,7 @@ const DEFAULT_ENDPOINT = 'https://ai-score.beon.tech/api/v1/submissions';
 const HELP = `ai-score — extract AI coding harness usage into an auditable report
 
 Usage
-  npx @beon/ai-score [options]
+  npx @beon-tech/ai-score [options]
 
 Scans local session data from Claude Code, Codex, OpenCode and pi, normalizes
 it into structural metadata (tool names, model ids, counts, timestamps, hashed
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
 
   const payload: Payload = {
     schema: 'beon.ai-score.v1',
-    client: { name: '@beon/ai-score', version },
+    client: { name: '@beon-tech/ai-score', version },
     generatedAt: now.toISOString(),
     window: { days, start: since.toISOString(), end: now.toISOString() },
     engineer: {
