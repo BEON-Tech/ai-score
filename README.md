@@ -108,15 +108,17 @@ node dist/cli.js --dry-run --verbose
 
 ## Releasing
 
-Releases are published from CI via [npm trusted publishing](https://docs.npmjs.com/trusted-publishers)
-(GitHub Actions OIDC — no npm tokens anywhere), which also attaches a
-provenance attestation linking the published tarball to the exact commit and
-workflow run that built it. To cut a release:
+Releases are fully automated by the [release workflow](.github/workflows/release.yml):
+trigger it from the GitHub **Actions** tab (Release → Run workflow → choose
+patch/minor/major), or from the CLI:
 
 ```sh
-npm version patch        # or minor / major — bumps version, commits, tags vX.Y.Z
-git push --follow-tags
+gh workflow run Release --repo BEON-Tech/ai-score -f bump=patch
 ```
 
-The [release workflow](.github/workflows/release.yml) triggers on the `v*` tag,
-verifies the tag matches `package.json`, builds, smoke-tests, and publishes.
+CI bumps the version, builds, smoke-tests, publishes to npm, and pushes the
+release commit and `vX.Y.Z` tag back — the tag is only pushed if the publish
+succeeded. Publishing uses [npm trusted publishing](https://docs.npmjs.com/trusted-publishers)
+(GitHub Actions OIDC — no npm tokens anywhere), which attaches a provenance
+attestation linking the published tarball to the exact commit and workflow run
+that built it. Never bump versions locally.
