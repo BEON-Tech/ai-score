@@ -1,0 +1,30 @@
+{
+  "name": "@beon/ai-score",
+  "version": "0.1.0",
+  "description": "Extracts AI coding harness usage (Claude Code, Codex, OpenCode, pi) into an auditable, privacy-preserving report and submits it to Beon for scoring.",
+  "type": "module",
+  "bin": {
+    "ai-score": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "WIRE_FORMAT.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/beon-tech/ai-score.git"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.6.0"
+  }
+}
