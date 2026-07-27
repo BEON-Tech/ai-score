@@ -14,6 +14,9 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "packageManager": "pnpm@11.17.0",
   "scripts": {
     "build": "tsc",
