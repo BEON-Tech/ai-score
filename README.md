@@ -105,3 +105,18 @@ pnpm install
 pnpm build
 node dist/cli.js --dry-run --verbose
 ```
+
+## Releasing
+
+Releases are published from CI via [npm trusted publishing](https://docs.npmjs.com/trusted-publishers)
+(GitHub Actions OIDC — no npm tokens anywhere), which also attaches a
+provenance attestation linking the published tarball to the exact commit and
+workflow run that built it. To cut a release:
+
+```sh
+npm version patch        # or minor / major — bumps version, commits, tags vX.Y.Z
+git push --follow-tags
+```
+
+The [release workflow](.github/workflows/release.yml) triggers on the `v*` tag,
+verifies the tag matches `package.json`, builds, smoke-tests, and publishes.
