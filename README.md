@@ -101,7 +101,7 @@ independently of the client.
 ## Development
 
 ```sh
-npm install
-npm run build
+pnpm install
+pnpm build
 node dist/cli.js --dry-run --verbose
 ```
