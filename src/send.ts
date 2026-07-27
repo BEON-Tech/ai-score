@@ -1,11 +1,14 @@
-import type { Payload } from './types.js';
+import type { Payload } from "./types.js";
 
-export async function send(endpoint: string, payload: Payload): Promise<{ status: number; body: string }> {
+export async function send(
+  endpoint: string,
+  payload: Payload,
+): Promise<{ status: number; body: string }> {
   const res = await fetch(endpoint, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'content-type': 'application/json',
-      'user-agent': `beon-ai-score/${payload.client.version}`,
+      "content-type": "application/json",
+      "user-agent": `beon-ai-score/${payload.client.version}`,
     },
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(30_000),

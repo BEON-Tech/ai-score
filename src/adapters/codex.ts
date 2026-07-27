@@ -1,6 +1,6 @@
-import { stat } from 'node:fs/promises';
-import { basename } from 'node:path';
-import type { Adapter, CollectContext, HarnessReport, SessionRecord } from '../types.js';
+import { stat } from "node:fs/promises";
+import { basename } from "node:path";
+import type { Adapter, CollectContext, HarnessReport, SessionRecord } from "../types.js";
 import {
   displayPath,
   emptyReport,
@@ -12,19 +12,19 @@ import {
   toIso,
   toMs,
   usageBucket,
-} from '../util.js';
+} from "../util.js";
 
 async function parseSession(
   file: string,
   report: HarnessReport,
   ctx: CollectContext,
 ): Promise<SessionRecord | null> {
-  const s = newSessionRecord(hash16(basename(file)), 'unknown');
+  const s = newSessionRecord(hash16(basename(file)), "unknown");
   const models = new Set<string>();
   const efforts = new Set<string>();
   const approvalPolicies = new Set<string>();
   const collaborationModes = new Set<string>();
-  let currentModel = 'unknown';
+  let currentModel = "unknown";
   let lastTokenTotals: any = null;
   let mcpCalls = 0;
   let errors = 0;
@@ -50,7 +50,7 @@ async function parseSession(
       continue;
     }
     const r: any = parsed.value;
-    if (!r || typeof r !== 'object') {
+    if (!r || typeof r !== "object") {
       report.parseErrors++;
       continue;
     }
@@ -62,35 +62,35 @@ async function parseSession(
     const p: any = r.payload ?? {};
 
     switch (r.type) {
-      case 'session_meta': {
+      case "session_meta": {
         const nativeId = p.id ?? p.session_id;
         if (nativeId) s.id = hash16(String(nativeId));
-        if (typeof p.cwd === 'string') s.projectId = hash16(p.cwd);
-        if (typeof p.cli_version === 'string') report.latestVersion = p.cli_version;
+        if (typeof p.cwd === "string") s.projectId = hash16(p.cwd);
+        if (typeof p.cli_version === "string") report.latestVersion = p.cli_version;
         if (p.git) gitRepo = true;
         if (p.parent_thread_id) s.isSubagent = true;
         break;
       }
-      case 'turn_context': {
-        if (typeof p.model === 'string') {
+      case "turn_context": {
+        if (typeof p.model === "string") {
           currentModel = p.model;
           models.add(p.model);
         }
-        if (typeof p.effort === 'string') efforts.add(p.effort);
-        if (typeof p.approval_policy === 'string') approvalPolicies.add(p.approval_policy);
+        if (typeof p.effort === "string") efforts.add(p.effort);
+        if (typeof p.approval_policy === "string") approvalPolicies.add(p.approval_policy);
         const collab = p.collaboration_mode;
-        if (typeof collab === 'string') collaborationModes.add(collab);
-        else if (collab && typeof collab.kind === 'string') collaborationModes.add(collab.kind);
+        if (typeof collab === "string") collaborationModes.add(collab);
+        else if (collab && typeof collab.kind === "string") collaborationModes.add(collab.kind);
         break;
       }
-      case 'response_item': {
+      case "response_item": {
         switch (p.type) {
-          case 'message':
-            if (p.role === 'assistant') s.counts.assistantMessages++;
+          case "message":
+            if (p.role === "assistant") s.counts.assistantMessages++;
             break;
-          case 'function_call':
-          case 'custom_tool_call': {
-            const name = typeof p.name === 'string' ? p.name : 'unknown';
+          case "function_call":
+          case "custom_tool_call": {
+            const name = typeof p.name === "string" ? p.name : "unknown";
             s.counts.toolCalls++;
             s.tools[name] = (s.tools[name] ?? 0) + 1;
             turnTools++;
@@ -99,32 +99,32 @@ async function parseSession(
         }
         break;
       }
-      case 'event_msg': {
+      case "event_msg": {
         switch (p.type) {
-          case 'user_message':
+          case "user_message":
             closeTurn(ts);
             s.counts.userPrompts++;
             s.agentic.turns++;
             turnStart = ts;
             break;
-          case 'token_count':
+          case "token_count":
             if (p.info?.total_token_usage) lastTokenTotals = p.info.total_token_usage;
             break;
-          case 'task_complete':
-            if (typeof p.duration_ms === 'number') {
+          case "task_complete":
+            if (typeof p.duration_ms === "number") {
               s.agentic.longestTurnMs = Math.max(s.agentic.longestTurnMs ?? 0, p.duration_ms);
             }
             break;
-          case 'turn_aborted':
+          case "turn_aborted":
             s.counts.interruptions++;
             closeTurn(ts);
             break;
-          case 'error':
+          case "error":
             errors++;
             break;
-          case 'mcp_tool_call_end': {
+          case "mcp_tool_call_end": {
             mcpCalls++;
-            const name = p.action_name ?? p.app_name ?? 'unknown';
+            const name = p.action_name ?? p.app_name ?? "unknown";
             s.counts.toolCalls++;
             s.tools[`mcp:${name}`] = (s.tools[`mcp:${name}`] ?? 0) + 1;
             turnTools++;
@@ -164,11 +164,11 @@ async function parseSession(
 }
 
 export const codex: Adapter = {
-  harness: 'codex',
+  harness: "codex",
   async collect(ctx) {
-    const roots = [home('.codex', 'sessions'), home('.codex', 'archived_sessions')];
-    const report = emptyReport('codex', displayPath(roots[0]));
-    const files = (await Promise.all(roots.map((r) => listFilesRecursive(r, '.jsonl')))).flat();
+    const roots = [home(".codex", "sessions"), home(".codex", "archived_sessions")];
+    const report = emptyReport("codex", displayPath(roots[0]));
+    const files = (await Promise.all(roots.map((r) => listFilesRecursive(r, ".jsonl")))).flat();
     if (files.length === 0) return report;
     report.detected = true;
     for (const file of files) {

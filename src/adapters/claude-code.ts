@@ -1,6 +1,6 @@
-import { readdir, stat } from 'node:fs/promises';
-import { join } from 'node:path';
-import type { Adapter, CollectContext, HarnessReport, SessionRecord } from '../types.js';
+import { readdir, stat } from "node:fs/promises";
+import { join } from "node:path";
+import type { Adapter, CollectContext, HarnessReport, SessionRecord } from "../types.js";
 import {
   displayPath,
   emptyReport,
@@ -11,18 +11,18 @@ import {
   toIso,
   toMs,
   usageBucket,
-} from '../util.js';
+} from "../util.js";
 
-const INTERRUPT_MARKERS = ['[Request interrupted by user', '[Request cancelled by user'];
+const INTERRUPT_MARKERS = ["[Request interrupted by user", "[Request cancelled by user"];
 
 function messageText(message: any): string {
   const content = message?.content;
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
   return content
-    .filter((b: any) => b?.type === 'text' && typeof b.text === 'string')
+    .filter((b: any) => b?.type === "text" && typeof b.text === "string")
     .map((b: any) => b.text)
-    .join('\n');
+    .join("\n");
 }
 
 function isToolResultCarrier(record: any): boolean {
@@ -31,7 +31,7 @@ function isToolResultCarrier(record: any): boolean {
   return (
     Array.isArray(content) &&
     content.length > 0 &&
-    content.every((b: any) => b?.type === 'tool_result')
+    content.every((b: any) => b?.type === "tool_result")
   );
 }
 
@@ -73,7 +73,7 @@ async function parseSession(
       continue;
     }
     const r: any = parsed.value;
-    if (!r || typeof r !== 'object') {
+    if (!r || typeof r !== "object") {
       report.parseErrors++;
       continue;
     }
@@ -82,26 +82,27 @@ async function parseSession(
       if (firstTs === null || ts < firstTs) firstTs = ts;
       if (lastTs === null || ts > lastTs) lastTs = ts;
     }
-    if (typeof r.version === 'string') report.latestVersion = r.version;
-    if (typeof r.gitBranch === 'string' && r.gitBranch) branches.add(r.gitBranch);
-    if (r.isSidechain === true && (r.type === 'user' || r.type === 'assistant')) sidechainMessages++;
+    if (typeof r.version === "string") report.latestVersion = r.version;
+    if (typeof r.gitBranch === "string" && r.gitBranch) branches.add(r.gitBranch);
+    if (r.isSidechain === true && (r.type === "user" || r.type === "assistant"))
+      sidechainMessages++;
 
     switch (r.type) {
-      case 'mode':
-        if (typeof r.mode === 'string') modes.add(r.mode);
+      case "mode":
+        if (typeof r.mode === "string") modes.add(r.mode);
         break;
-      case 'permission-mode':
-        if (typeof r.permissionMode === 'string') permissionModes.add(r.permissionMode);
+      case "permission-mode":
+        if (typeof r.permissionMode === "string") permissionModes.add(r.permissionMode);
         break;
-      case 'pr-link':
+      case "pr-link":
         s.outcome.prLinks++;
         break;
-      case 'system':
-        if (typeof r.hookCount === 'number' && r.hookCount > 0) hookEvents++;
-        if (typeof r.subtype === 'string' && r.subtype.includes('compact')) compactions++;
+      case "system":
+        if (typeof r.hookCount === "number" && r.hookCount > 0) hookEvents++;
+        if (typeof r.subtype === "string" && r.subtype.includes("compact")) compactions++;
         break;
-      case 'user': {
-        if (typeof r.permissionMode === 'string') permissionModes.add(r.permissionMode);
+      case "user": {
+        if (typeof r.permissionMode === "string") permissionModes.add(r.permissionMode);
         if (r.toolDenialKind !== undefined && r.toolDenialKind !== null) s.counts.toolDenials++;
         if (r.isMeta === true || r.isSidechain === true) break;
         if (isToolResultCarrier(r)) break;
@@ -111,27 +112,27 @@ async function parseSession(
           closeTurn(ts);
           break;
         }
-        if (text.includes('<command-name>')) slashCommands++;
+        if (text.includes("<command-name>")) slashCommands++;
         closeTurn(ts);
         s.counts.userPrompts++;
         s.agentic.turns++;
         turnStart = ts;
         break;
       }
-      case 'assistant': {
+      case "assistant": {
         if (r.isSidechain !== true) s.counts.assistantMessages++;
         const message = r.message ?? {};
-        if (message.usage && typeof message.usage === 'object') {
-          const model = typeof message.model === 'string' ? message.model : 'unknown';
+        if (message.usage && typeof message.usage === "object") {
+          const model = typeof message.model === "string" ? message.model : "unknown";
           const key = String(r.requestId ?? message.id ?? r.uuid ?? usageByRequest.size);
           usageByRequest.set(key, { model, usage: message.usage });
         }
         const content = Array.isArray(message.content) ? message.content : [];
         for (const block of content) {
-          if (block?.type !== 'tool_use' || typeof block.name !== 'string') continue;
+          if (block?.type !== "tool_use" || typeof block.name !== "string") continue;
           s.counts.toolCalls++;
           s.tools[block.name] = (s.tools[block.name] ?? 0) + 1;
-          if (block.name.startsWith('mcp__')) mcpCalls++;
+          if (block.name.startsWith("mcp__")) mcpCalls++;
           if (r.isSidechain !== true) turnTools++;
         }
         break;
@@ -158,7 +159,7 @@ async function parseSession(
     modes: [...modes].sort(),
     permissionModes: [...permissionModes].sort(),
     sidechainMessages,
-    subagentRuns: s.tools['Agent'] ?? 0,
+    subagentRuns: s.tools["Agent"] ?? 0,
     hookEvents,
     compactions,
     slashCommands,
@@ -168,10 +169,10 @@ async function parseSession(
 }
 
 export const claudeCode: Adapter = {
-  harness: 'claude-code',
+  harness: "claude-code",
   async collect(ctx) {
-    const root = home('.claude', 'projects');
-    const report = emptyReport('claude-code', displayPath(root));
+    const root = home(".claude", "projects");
+    const report = emptyReport("claude-code", displayPath(root));
     let projectDirs: string[];
     try {
       projectDirs = await readdir(root);
@@ -188,7 +189,7 @@ export const claudeCode: Adapter = {
         continue;
       }
       for (const entry of entries) {
-        if (!entry.endsWith('.jsonl')) continue;
+        if (!entry.endsWith(".jsonl")) continue;
         const file = join(projectPath, entry);
         report.sessionsScanned++;
         try {

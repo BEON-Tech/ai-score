@@ -13,12 +13,12 @@ npx @beon-tech/ai-score --audit      # print the exact JSON that would be upload
 
 ## Supported harnesses
 
-| Harness | Source scanned |
-|---|---|
-| Claude Code | `~/.claude/projects/**/*.jsonl` |
-| Codex CLI | `~/.codex/sessions/**/*.jsonl` (+ `archived_sessions`) |
-| OpenCode | `~/.local/share/opencode/opencode.db` (requires Node ≥ 22.5 for `node:sqlite`) |
-| pi | `~/.pi/agent/sessions/**/*.jsonl` |
+| Harness     | Source scanned                                                                 |
+| ----------- | ------------------------------------------------------------------------------ |
+| Claude Code | `~/.claude/projects/**/*.jsonl`                                                |
+| Codex CLI   | `~/.codex/sessions/**/*.jsonl` (+ `archived_sessions`)                         |
+| OpenCode    | `~/.local/share/opencode/opencode.db` (requires Node ≥ 22.5 for `node:sqlite`) |
+| pi          | `~/.pi/agent/sessions/**/*.jsonl`                                              |
 
 Everything is read-only. The CLI never modifies harness data.
 

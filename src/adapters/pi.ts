@@ -1,6 +1,6 @@
-import { readdir, stat } from 'node:fs/promises';
-import { join } from 'node:path';
-import type { Adapter, CollectContext, HarnessReport, SessionRecord } from '../types.js';
+import { readdir, stat } from "node:fs/promises";
+import { join } from "node:path";
+import type { Adapter, CollectContext, HarnessReport, SessionRecord } from "../types.js";
 import {
   displayPath,
   emptyReport,
@@ -11,7 +11,7 @@ import {
   toIso,
   toMs,
   usageBucket,
-} from '../util.js';
+} from "../util.js";
 
 async function parseSession(
   file: string,
@@ -43,7 +43,7 @@ async function parseSession(
       continue;
     }
     const r: any = parsed.value;
-    if (!r || typeof r !== 'object') {
+    if (!r || typeof r !== "object") {
       report.parseErrors++;
       continue;
     }
@@ -53,45 +53,45 @@ async function parseSession(
       if (lastTs === null || ts > lastTs) lastTs = ts;
     }
 
-    if (r.type === 'session') {
-      if (typeof r.id === 'string') s.id = hash16(r.id);
-      if (typeof r.cwd === 'string') s.projectId = hash16(r.cwd);
-      if (typeof r.version === 'string') report.latestVersion = r.version;
+    if (r.type === "session") {
+      if (typeof r.id === "string") s.id = hash16(r.id);
+      if (typeof r.cwd === "string") s.projectId = hash16(r.cwd);
+      if (typeof r.version === "string") report.latestVersion = r.version;
       continue;
     }
-    if (r.type !== 'message') continue;
+    if (r.type !== "message") continue;
     const m: any = r.message ?? {};
     switch (m.role) {
-      case 'user':
+      case "user":
         closeTurn(ts);
         s.counts.userPrompts++;
         s.agentic.turns++;
         turnStart = ts;
         break;
-      case 'assistant': {
+      case "assistant": {
         s.counts.assistantMessages++;
-        if (m.stopReason === 'aborted') s.counts.interruptions++;
-        const model = `${m.provider ?? 'unknown'}/${m.model ?? 'unknown'}`;
+        if (m.stopReason === "aborted") s.counts.interruptions++;
+        const model = `${m.provider ?? "unknown"}/${m.model ?? "unknown"}`;
         const usage = m.usage ?? {};
         const bucket = usageBucket(s.models, model);
         bucket.input += Number(usage.input) || 0;
         bucket.output += Number(usage.output) || 0;
         bucket.cacheRead += Number(usage.cacheRead) || 0;
         bucket.cacheWrite += Number(usage.cacheWrite) || 0;
-        if (typeof usage.cost === 'number') {
+        if (typeof usage.cost === "number") {
           cost += usage.cost;
           hasCost = true;
         }
         const content = Array.isArray(m.content) ? m.content : [];
         for (const block of content) {
-          if (block?.type !== 'toolCall' || typeof block.name !== 'string') continue;
+          if (block?.type !== "toolCall" || typeof block.name !== "string") continue;
           s.counts.toolCalls++;
           s.tools[block.name] = (s.tools[block.name] ?? 0) + 1;
           turnTools++;
         }
         break;
       }
-      case 'toolResult':
+      case "toolResult":
         if (m.isError === true) s.counts.toolErrors++;
         break;
     }
@@ -108,10 +108,10 @@ async function parseSession(
 }
 
 export const pi: Adapter = {
-  harness: 'pi',
+  harness: "pi",
   async collect(ctx) {
-    const root = home('.pi', 'agent', 'sessions');
-    const report = emptyReport('pi', displayPath(root));
+    const root = home(".pi", "agent", "sessions");
+    const report = emptyReport("pi", displayPath(root));
     let projectDirs: string[];
     try {
       projectDirs = await readdir(root);
@@ -128,7 +128,7 @@ export const pi: Adapter = {
         continue;
       }
       for (const entry of entries) {
-        if (!entry.endsWith('.jsonl')) continue;
+        if (!entry.endsWith(".jsonl")) continue;
         const file = join(projectPath, entry);
         report.sessionsScanned++;
         try {

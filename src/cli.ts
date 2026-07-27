@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-import { execSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
-import { createInterface } from 'node:readline/promises';
-import { parseArgs } from 'node:util';
-import { adapters } from './adapters/index.js';
-import { send } from './send.js';
-import { renderSummary } from './summary.js';
-import type { HarnessName, Payload } from './types.js';
-import { hash16 } from './util.js';
+import { execSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import { createInterface } from "node:readline/promises";
+import { parseArgs } from "node:util";
+import { adapters } from "./adapters/index.js";
+import { send } from "./send.js";
+import { renderSummary } from "./summary.js";
+import type { HarnessName, Payload } from "./types.js";
+import { hash16 } from "./util.js";
 
-const DEFAULT_ENDPOINT = 'https://ai-score.beon.tech/api/v1/submissions';
+const DEFAULT_ENDPOINT = "https://ai-score.beon.tech/api/v1/submissions";
 
 const HELP = `ai-score — extract AI coding harness usage into an auditable report
 
@@ -43,18 +43,18 @@ Other
 
 function ownVersion(): string {
   try {
-    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
     return String(pkg.version);
   } catch {
-    return '0.0.0';
+    return "0.0.0";
   }
 }
 
 function gitEmail(): string | null {
   try {
-    const email = execSync('git config user.email', {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
+    const email = execSync("git config user.email", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
     }).trim();
     return email || null;
   } catch {
@@ -65,17 +65,17 @@ function gitEmail(): string | null {
 async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
-      days: { type: 'string', default: '30' },
-      harness: { type: 'string', multiple: true },
-      email: { type: 'string' },
-      endpoint: { type: 'string' },
-      out: { type: 'string' },
-      audit: { type: 'boolean', default: false },
-      'dry-run': { type: 'boolean', default: false },
-      yes: { type: 'boolean', default: false },
-      verbose: { type: 'boolean', default: false },
-      version: { type: 'boolean', default: false },
-      help: { type: 'boolean', default: false },
+      days: { type: "string", default: "30" },
+      harness: { type: "string", multiple: true },
+      email: { type: "string" },
+      endpoint: { type: "string" },
+      out: { type: "string" },
+      audit: { type: "boolean", default: false },
+      "dry-run": { type: "boolean", default: false },
+      yes: { type: "boolean", default: false },
+      verbose: { type: "boolean", default: false },
+      version: { type: "boolean", default: false },
+      help: { type: "boolean", default: false },
     },
   });
 
@@ -95,30 +95,32 @@ async function main(): Promise<void> {
   }
 
   const known = adapters.map((a) => a.harness);
-  const requested = values.harness?.flatMap((v) => v.split(',').map((s) => s.trim())).filter(Boolean);
+  const requested = values.harness
+    ?.flatMap((v) => v.split(",").map((s) => s.trim()))
+    .filter(Boolean);
   if (requested) {
     const unknown = requested.filter((h) => !known.includes(h as HarnessName));
     if (unknown.length > 0) {
-      throw new Error(`unknown harness "${unknown.join(', ')}" — valid values: ${known.join(', ')}`);
+      throw new Error(
+        `unknown harness "${unknown.join(", ")}" — valid values: ${known.join(", ")}`,
+      );
     }
   }
-  const selected = requested
-    ? adapters.filter((a) => requested.includes(a.harness))
-    : adapters;
+  const selected = requested ? adapters.filter((a) => requested.includes(a.harness)) : adapters;
 
   const now = new Date();
   const since = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
   const verbose = values.verbose ? (msg: string) => process.stderr.write(`${msg}\n`) : () => {};
 
-  process.stderr.write(`scanning ${selected.map((a) => a.harness).join(', ')}…\n`);
+  process.stderr.write(`scanning ${selected.map((a) => a.harness).join(", ")}…\n`);
   const harnesses = [];
   for (const adapter of selected) {
     harnesses.push(await adapter.collect({ since, now, verbose }));
   }
 
   const payload: Payload = {
-    schema: 'beon.ai-score.v1',
-    client: { name: '@beon-tech/ai-score', version },
+    schema: "beon.ai-score.v1",
+    client: { name: "@beon-tech/ai-score", version },
     generatedAt: now.toISOString(),
     window: { days, start: since.toISOString(), end: now.toISOString() },
     engineer: {
@@ -140,24 +142,30 @@ async function main(): Promise<void> {
     process.stdout.write(`${json}\n`);
   }
 
-  if (values['dry-run']) {
-    process.stderr.write('dry run — nothing was uploaded.\n');
+  if (values["dry-run"]) {
+    process.stderr.write("dry run — nothing was uploaded.\n");
     return;
   }
 
   const endpoint = values.endpoint ?? process.env.AI_SCORE_ENDPOINT ?? DEFAULT_ENDPOINT;
   if (!payload.engineer.email) {
-    throw new Error('no email found — pass --email you@beon.tech so the submission can be attributed');
+    throw new Error(
+      "no email found — pass --email you@beon.tech so the submission can be attributed",
+    );
   }
   if (!values.yes) {
     if (!process.stdin.isTTY) {
-      throw new Error('refusing to upload without confirmation — pass --yes, or use --dry-run');
+      throw new Error("refusing to upload without confirmation — pass --yes, or use --dry-run");
     }
     const rl = createInterface({ input: process.stdin, output: process.stderr });
-    const answer = (await rl.question(`upload this report to ${endpoint}? [y/N] `)).trim().toLowerCase();
+    const answer = (await rl.question(`upload this report to ${endpoint}? [y/N] `))
+      .trim()
+      .toLowerCase();
     rl.close();
-    if (answer !== 'y' && answer !== 'yes') {
-      process.stderr.write('aborted — nothing was uploaded. Tip: --audit shows the exact payload.\n');
+    if (answer !== "y" && answer !== "yes") {
+      process.stderr.write(
+        "aborted — nothing was uploaded. Tip: --audit shows the exact payload.\n",
+      );
       return;
     }
   }

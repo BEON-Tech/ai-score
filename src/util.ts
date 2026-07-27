@@ -1,13 +1,13 @@
-import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { readdir } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { createInterface } from 'node:readline';
-import type { HarnessName, HarnessReport, SessionRecord, TokenUsage } from './types.js';
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { readdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { createInterface } from "node:readline";
+import type { HarnessName, HarnessReport, SessionRecord, TokenUsage } from "./types.js";
 
 export function hash16(value: string): string {
-  return createHash('sha256').update(value).digest('hex').slice(0, 16);
+  return createHash("sha256").update(value).digest("hex").slice(0, 16);
 }
 
 export function home(...segments: string[]): string {
@@ -20,12 +20,12 @@ export function displayPath(path: string): string {
 }
 
 export function toMs(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) {
+  if (typeof value === "number" && Number.isFinite(value)) {
     if (value > 1e12) return value;
     if (value > 1e9) return value * 1000;
     return null;
   }
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     const parsed = Date.parse(value);
     return Number.isNaN(parsed) ? null : parsed;
   }
@@ -39,7 +39,7 @@ export function toIso(ms: number | null): string | null {
 export type JsonlLine = { ok: true; value: unknown } | { ok: false };
 
 export async function* jsonlRecords(file: string): AsyncGenerator<JsonlLine> {
-  const stream = createReadStream(file, { encoding: 'utf8' });
+  const stream = createReadStream(file, { encoding: "utf8" });
   const rl = createInterface({ input: stream, crlfDelay: Infinity });
   try {
     for await (const line of rl) {

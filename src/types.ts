@@ -1,4 +1,4 @@
-export type HarnessName = 'claude-code' | 'codex' | 'opencode' | 'pi';
+export type HarnessName = "claude-code" | "codex" | "opencode" | "pi";
 
 export interface TokenUsage {
   input: number;
@@ -59,7 +59,7 @@ export interface HarnessReport {
 }
 
 export interface Payload {
-  schema: 'beon.ai-score.v1';
+  schema: "beon.ai-score.v1";
   client: { name: string; version: string };
   generatedAt: string;
   window: { days: number; start: string; end: string };

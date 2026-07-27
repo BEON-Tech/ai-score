@@ -1,4 +1,4 @@
-import type { HarnessReport, Payload, TokenUsage } from './types.js';
+import type { HarnessReport, Payload, TokenUsage } from "./types.js";
 
 function fmt(n: number): string {
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
@@ -44,87 +44,93 @@ function aggregate(report: HarnessReport) {
 
 export function renderSummary(payload: Payload): string {
   const lines: string[] = [];
-  lines.push('');
+  lines.push("");
   lines.push(`ai-score v${payload.client.version} — extraction summary`);
   lines.push(
     `window: last ${payload.window.days} days (${payload.window.start.slice(0, 10)} → ${payload.window.end.slice(0, 10)})`,
   );
   lines.push(
-    `engineer: ${payload.engineer.email ?? '(no email — pass --email)'} · machine ${payload.engineer.machineId}`,
+    `engineer: ${payload.engineer.email ?? "(no email — pass --email)"} · machine ${payload.engineer.machineId}`,
   );
-  lines.push('');
+  lines.push("");
 
   const rows: Row[] = [];
   for (const report of payload.harnesses) {
     if (!report.detected) {
       rows.push({
         harness: report.harness,
-        status: 'not found',
-        sessions: '—',
-        prompts: '—',
-        toolCalls: '—',
-        tokensIn: '—',
-        tokensOut: '—',
-        cost: '—',
+        status: "not found",
+        sessions: "—",
+        prompts: "—",
+        toolCalls: "—",
+        tokensIn: "—",
+        tokensOut: "—",
+        cost: "—",
       });
       continue;
     }
     if (report.skippedReason) {
       rows.push({
         harness: report.harness,
-        status: 'skipped',
-        sessions: '—',
-        prompts: '—',
-        toolCalls: '—',
-        tokensIn: '—',
-        tokensOut: '—',
-        cost: '—',
+        status: "skipped",
+        sessions: "—",
+        prompts: "—",
+        toolCalls: "—",
+        tokensIn: "—",
+        tokensOut: "—",
+        cost: "—",
       });
       continue;
     }
     const agg = aggregate(report);
     rows.push({
       harness: report.harness,
-      status: 'ok',
+      status: "ok",
       sessions: String(report.sessionsIncluded),
       prompts: fmt(agg.prompts),
       toolCalls: fmt(agg.toolCalls),
       tokensIn: fmt(agg.totals.input + agg.totals.cacheRead),
       tokensOut: fmt(agg.totals.output),
-      cost: agg.cost === null ? '—' : `$${agg.cost.toFixed(2)}`,
+      cost: agg.cost === null ? "—" : `$${agg.cost.toFixed(2)}`,
     });
   }
 
   const header: Row = {
-    harness: 'harness',
-    status: 'status',
-    sessions: 'sessions',
-    prompts: 'prompts',
-    toolCalls: 'tool calls',
-    tokensIn: 'tokens in',
-    tokensOut: 'tokens out',
-    cost: 'cost',
+    harness: "harness",
+    status: "status",
+    sessions: "sessions",
+    prompts: "prompts",
+    toolCalls: "tool calls",
+    tokensIn: "tokens in",
+    tokensOut: "tokens out",
+    cost: "cost",
   };
   const columns = Object.keys(header) as (keyof Row)[];
   const widths = Object.fromEntries(
     columns.map((c) => [c, Math.max(header[c].length, ...rows.map((r) => r[c].length))]),
   ) as Record<keyof Row, number>;
   const renderRow = (r: Row) =>
-    '  ' + columns.map((c) => (c === 'harness' ? r[c].padEnd(widths[c]) : r[c].padStart(widths[c]))).join('  ');
+    "  " +
+    columns
+      .map((c) => (c === "harness" ? r[c].padEnd(widths[c]) : r[c].padStart(widths[c])))
+      .join("  ");
   lines.push(renderRow(header));
-  lines.push('  ' + columns.map((c) => '-'.repeat(widths[c])).join('  '));
+  lines.push("  " + columns.map((c) => "-".repeat(widths[c])).join("  "));
   for (const row of rows) lines.push(renderRow(row));
 
   for (const report of payload.harnesses) {
-    if (report.skippedReason) lines.push(`  note: ${report.harness} skipped — ${report.skippedReason}`);
+    if (report.skippedReason)
+      lines.push(`  note: ${report.harness} skipped — ${report.skippedReason}`);
     if (report.parseErrors > 0)
-      lines.push(`  note: ${report.harness} had ${report.parseErrors} unparseable records (skipped, counted)`);
+      lines.push(
+        `  note: ${report.harness} had ${report.parseErrors} unparseable records (skipped, counted)`,
+      );
   }
 
-  lines.push('');
-  lines.push('privacy: only structural metadata is collected — tool names, model ids, counts,');
-  lines.push('timestamps and one-way hashes. No code, prompts, file paths or message text.');
-  lines.push('run with --audit to print the exact payload before anything is sent.');
-  lines.push('');
-  return lines.join('\n');
+  lines.push("");
+  lines.push("privacy: only structural metadata is collected — tool names, model ids, counts,");
+  lines.push("timestamps and one-way hashes. No code, prompts, file paths or message text.");
+  lines.push("run with --audit to print the exact payload before anything is sent.");
+  lines.push("");
+  return lines.join("\n");
 }

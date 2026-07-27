@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: 'Version bump'
+        description: "Version bump"
         type: choice
         options:
           - patch
