@@ -42,16 +42,17 @@ Usage
   npx @beon-tech/ai-score logout           forget the cached token
   npx @beon-tech/ai-score whoami           show who this machine is signed in as
 
-Scans local session data from Claude Code, Codex, OpenCode and pi, normalizes
-it into structural metadata (tool names, model ids, counts, timestamps, hashed
-ids — never code, prompts, file paths or message text) and submits it to the
-Beon scoring service. Submissions are attributed to the account you sign in
-as; the server derives your identity from the token, so nothing about your
-identity is taken from this machine.
+Scans local session data from Claude Code, Codex, Cursor, OpenCode and pi,
+normalizes it into structural metadata (tool names, model ids, counts,
+timestamps, hashed ids — never code, prompts, file paths or message text) and
+submits it to the Beon scoring service. Submissions are attributed to the
+account you sign in as; the server derives your identity from the token, so
+nothing about your identity is taken from this machine.
 
 Options
   --days <n>          look-back window in days (default: 30)
-  --harness <names>   comma-separated subset: claude-code,codex,opencode,pi
+  --harness <names>   comma-separated subset: claude-code,codex,cursor-cli,
+                      cursor-ide,opencode,pi
   --url <url>         ai-score server (default: $AI_SCORE_URL or
                       ${DEFAULT_BASE_URL})
   --no-browser        print the login URL instead of opening a browser

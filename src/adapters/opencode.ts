@@ -2,10 +2,12 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Adapter } from "../types.js";
 import {
+  databaseSync,
   displayPath,
   emptyReport,
   hash16,
   home,
+  NEEDS_SQLITE,
   newSessionRecord,
   toIso,
   toMs,
@@ -21,11 +23,9 @@ export const opencode: Adapter = {
     if (!existsSync(dbPath)) return report;
     report.detected = true;
 
-    let DatabaseSync: any;
-    try {
-      ({ DatabaseSync } = await import("node:sqlite"));
-    } catch {
-      report.skippedReason = "reading OpenCode data requires Node.js >= 22.5 (node:sqlite)";
+    const DatabaseSync = await databaseSync();
+    if (!DatabaseSync) {
+      report.skippedReason = `reading OpenCode data ${NEEDS_SQLITE}`;
       return report;
     }
 

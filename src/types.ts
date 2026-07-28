@@ -1,4 +1,11 @@
-export type HarnessName = "claude-code" | "codex" | "opencode" | "pi";
+/**
+ * Cursor ships two independent products that share a name and nothing else: the
+ * `cursor-agent` CLI keeps a content-addressed blob store under `~/.cursor`,
+ * the desktop app keeps composers in its VS Code state database. They record
+ * different fields, so they report as different harnesses rather than as one
+ * blurred row.
+ */
+export type HarnessName = "claude-code" | "codex" | "cursor-cli" | "cursor-ide" | "opencode" | "pi";
 
 export interface TokenUsage {
   input: number;

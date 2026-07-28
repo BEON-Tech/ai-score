@@ -65,17 +65,17 @@ version strings, and one-way hashes.
 
 ## `HarnessReport`
 
-| Field              | Type                                           | Meaning                                                                       |
-| ------------------ | ---------------------------------------------- | ----------------------------------------------------------------------------- |
-| `harness`          | `claude-code` \| `codex` \| `opencode` \| `pi` |                                                                               |
-| `detected`         | boolean                                        | whether the harness's data directory exists                                   |
-| `dataPath`         | string                                         | fixed, well-known location that was scanned (e.g. `~/.claude/projects`)       |
-| `latestVersion`    | string \| null                                 | most recent harness version seen in the data                                  |
-| `sessionsScanned`  | number                                         | sessions on disk (all time)                                                   |
-| `sessionsIncluded` | number                                         | sessions inside the window                                                    |
-| `parseErrors`      | number                                         | records that failed to parse and were skipped                                 |
-| `skippedReason`    | string \| null                                 | why a detected harness produced no data (e.g. Node too old for `node:sqlite`) |
-| `sessions`         | `SessionRecord[]`                              |                                                                               |
+| Field              | Type                                                                           | Meaning                                                                       |
+| ------------------ | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| `harness`          | `claude-code` \| `codex` \| `cursor-cli` \| `cursor-ide` \| `opencode` \| `pi` |                                                                               |
+| `detected`         | boolean                                                                        | whether the harness's data directory exists                                   |
+| `dataPath`         | string                                                                         | fixed, well-known location that was scanned (e.g. `~/.claude/projects`)       |
+| `latestVersion`    | string \| null                                                                 | most recent harness version seen in the data                                  |
+| `sessionsScanned`  | number                                                                         | sessions on disk (all time)                                                   |
+| `sessionsIncluded` | number                                                                         | sessions inside the window                                                    |
+| `parseErrors`      | number                                                                         | records that failed to parse and were skipped                                 |
+| `skippedReason`    | string \| null                                                                 | why a detected harness produced no data (e.g. Node too old for `node:sqlite`) |
+| `sessions`         | `SessionRecord[]`                                                              |                                                                               |
 
 ## `SessionRecord`
 
@@ -93,7 +93,7 @@ version strings, and one-way hashes.
 | `counts.interruptions`                             | number                      | times the user aborted the agent mid-turn                                                          |
 | `tools`                                            | `{ [toolName]: count }`     | tool **names** only, never arguments or outputs                                                    |
 | `models`                                           | `{ [modelId]: TokenUsage }` | per-model token totals                                                                             |
-| `costUsd`                                          | number \| null              | cost where the harness records it (OpenCode, pi)                                                   |
+| `costUsd`                                          | number \| null              | cost where the harness records it (OpenCode, pi, Cursor's separately billed requests)              |
 | `flags`                                            | object                      | harness-specific structural signals, see below                                                     |
 | `agentic.turns`                                    | number                      | user-initiated turns                                                                               |
 | `agentic.maxToolCallsPerTurn`                      | number                      | longest uninterrupted tool-call run in one turn                                                    |
@@ -117,11 +117,51 @@ Values are numbers, booleans, or arrays of harness-defined enum values.
   `subagentRuns`, `hookEvents`, `compactions`, `slashCommands`, `mcpCalls`
 - **codex**: `models`, `efforts`, `approvalPolicies`, `collaborationModes`,
   `mcpCalls`, `errors`, `gitRepo`
+- **cursor-cli**: `modes`, `models`, `mcpCalls`, `reasoningBlocks`
+- **cursor-ide**: `modes` (`agent`, `chat`, `plan`), `models`, `mcpCalls`,
+  `maxMode`, `isAgentic`, `billedRequests`, `thinkingBlocks`
 - **opencode**: `agents` (agent mode names)
 - **pi**: none yet
+
+## Cursor
+
+Cursor is two harnesses because it is two products with unrelated storage, and
+neither records everything the others do. What each one can and cannot report:
+
+| Field                    | `cursor-cli`                                 | `cursor-ide`                                      |
+| ------------------------ | -------------------------------------------- | ------------------------------------------------- |
+| `models` token counts    | **none** — model id with a zero usage bucket | `input` / `output` per model (no cache split)     |
+| `costUsd`                | never recorded                               | separately billed requests only; `null` otherwise |
+| `startedAt` / `endedAt`  | store creation time → file mtime             | composer `createdAt` → `lastUpdatedAt`            |
+| `agentic.longestTurnMs`  | **null** — messages carry no clock           | from the per-request client timings               |
+| `counts.toolErrors`      | not recorded                                 | tool status `error`                               |
+| `counts.toolDenials`     | not recorded                                 | tool decision `rejected`                          |
+| `counts.interruptions`   | not recorded                                 | tool status `cancelled`                           |
+| `outcome.additions` etc. | not recorded                                 | composer diff totals                              |
+| `projectId`              | hash of Cursor's own project key             | hash of the workspace folder path                 |
+
+Two consequences worth stating plainly:
+
+- **Project ids do not line up across the two.** The CLI never writes the
+  working directory down — only its own opaque key for it — so the same repo
+  hashes differently under `cursor-cli` than under `cursor-ide` or any other
+  harness. Recovering the path would mean guessing at it, which is worse.
+- **`counts.assistantMessages` is a reply count, not a bubble count.** The
+  desktop app emits a separate message for every tool call and every block of
+  thinking; counting those would inflate the figure several-fold against
+  harnesses that record one message per API response. Only messages carrying
+  assistant prose are counted, with the rest in `counts.toolCalls` and
+  `flags.thinkingBlocks`.
+
+Nothing from Cursor's `~/.cursor/ai-tracking` database — which stores commit
+messages, file paths and conversation summaries — is read at all.
 
 ## Windowing
 
 A session is included when its file was modified (or DB row updated) inside the
 window **and** its last record timestamp is inside the window. Sessions that
 started before the window but continued into it are included whole.
+
+`sessionsScanned` counts sessions that still exist. Cursor keeps the key of a
+deleted chat around holding `null`; those tombstones count as neither a session
+nor a parse error.

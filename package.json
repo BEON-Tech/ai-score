@@ -1,7 +1,7 @@
 {
   "name": "@beon-tech/ai-score",
   "version": "0.1.5",
-  "description": "Extracts AI coding harness usage (Claude Code, Codex, OpenCode, pi) into an auditable, privacy-preserving report and submits it to Beon for scoring.",
+  "description": "Extracts AI coding harness usage (Claude Code, Codex, Cursor, OpenCode, pi) into an auditable, privacy-preserving report and submits it to Beon for scoring.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/BEON-Tech/ai-score.git"

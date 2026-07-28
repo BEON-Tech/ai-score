@@ -22,12 +22,24 @@ npx @beon-tech/ai-score logout       # forget the cached token
 
 ## Supported harnesses
 
-| Harness     | Source scanned                                                                 |
-| ----------- | ------------------------------------------------------------------------------ |
-| Claude Code | `~/.claude/projects/**/*.jsonl`                                                |
-| Codex CLI   | `~/.codex/sessions/**/*.jsonl` (+ `archived_sessions`)                         |
-| OpenCode    | `~/.local/share/opencode/opencode.db` (requires Node ≥ 22.5 for `node:sqlite`) |
-| pi          | `~/.pi/agent/sessions/**/*.jsonl`                                              |
+| Harness      | Source scanned                                                              |
+| ------------ | --------------------------------------------------------------------------- |
+| Claude Code  | `~/.claude/projects/**/*.jsonl`                                             |
+| Codex CLI    | `~/.codex/sessions/**/*.jsonl` (+ `archived_sessions`)                      |
+| Cursor CLI   | `~/.cursor/chats/**/store.db` (`node:sqlite`)                               |
+| Cursor (app) | Cursor's `globalStorage/state.vscdb` and `workspaceStorage` (`node:sqlite`) |
+| OpenCode     | `~/.local/share/opencode/opencode.db` (`node:sqlite`)                       |
+| pi           | `~/.pi/agent/sessions/**/*.jsonl`                                           |
+
+Sources marked `node:sqlite` need Node ≥ 22.5; on older Node those harnesses
+report a `skippedReason` and the rest of the scan proceeds.
+
+Cursor ships two products that share a name and nothing else, so they report as
+two harnesses — `cursor-cli` and `cursor-ide`. They record different things:
+the desktop app tracks tokens, cost and per-session diff stats, while the CLI's
+session store keeps neither timestamps per message nor token counts, so
+`cursor-cli` sessions carry a model id with an empty usage bucket and no
+`longestTurnMs`.
 
 Harness data is read-only — the CLI never modifies it. The one thing it writes
 outside of `--out` is your access token, cached in
@@ -90,7 +102,8 @@ whoami              print the account this machine submits as
 
 ```
 --days <n>          look-back window in days (default: 30)
---harness <names>   comma-separated subset: claude-code,codex,opencode,pi
+--harness <names>   comma-separated subset: claude-code,codex,cursor-cli,
+                    cursor-ide,opencode,pi
 --url <url>         ai-score server (default: $AI_SCORE_URL or
                     https://ai-score.beon.tech)
 --no-browser        print the login URL instead of opening a browser
@@ -118,6 +131,8 @@ src/
   adapters/
     claude-code.ts   one adapter per harness — each translates its native
     codex.ts         on-disk format into the common SessionRecord shape
+    cursor-cli.ts
+    cursor-ide.ts
     opencode.ts
     pi.ts
   auth/

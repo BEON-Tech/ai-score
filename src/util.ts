@@ -73,6 +73,23 @@ export async function listFilesRecursive(dir: string, suffix: string): Promise<s
   return out;
 }
 
+/**
+ * `node:sqlite` only exists from Node 22.5, and this package supports 20. The
+ * harnesses that keep their sessions in SQLite ask for the driver here and set
+ * a `skippedReason` when it is missing, so an old Node loses one harness rather
+ * than the whole scan.
+ */
+export async function databaseSync(): Promise<any | null> {
+  try {
+    const { DatabaseSync } = await import("node:sqlite");
+    return DatabaseSync;
+  } catch {
+    return null;
+  }
+}
+
+export const NEEDS_SQLITE = "requires Node.js >= 22.5 (node:sqlite)";
+
 export function emptyUsage(): TokenUsage {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 };
 }

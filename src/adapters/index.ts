@@ -1,7 +1,9 @@
 import type { Adapter } from "../types.js";
 import { claudeCode } from "./claude-code.js";
 import { codex } from "./codex.js";
+import { cursorCli } from "./cursor-cli.js";
+import { cursorIde } from "./cursor-ide.js";
 import { opencode } from "./opencode.js";
 import { pi } from "./pi.js";
 
-export const adapters: Adapter[] = [claudeCode, codex, opencode, pi];
+export const adapters: Adapter[] = [claudeCode, codex, cursorCli, cursorIde, opencode, pi];
