@@ -1,3 +1,5 @@
+import { c, padEnd, track } from "../ui.js";
+import { displayPath } from "../util.js";
 import { canOpenBrowser, openBrowser } from "./browser.js";
 import { fetchIdentity, requestDeviceCode, requestToken } from "./client.js";
 import { clearCredential, credentialPath, readCredential, writeCredential } from "./store.js";
@@ -34,15 +36,20 @@ export async function login(ctx: AuthContext): Promise<Credential> {
   const device = await requestDeviceCode(origin);
   const url = device.verification_uri_complete ?? device.verification_uri;
 
+  // The code is the one thing here the engineer has to read carefully and
+  // compare against the page, so it gets the emphasis.
+  const labelWidth = track("open").length;
   ctx.log("");
-  ctx.log(`  Your code:  ${device.user_code}`);
-  ctx.log(`  Open:       ${url}`);
+  ctx.log(`  ${c.faint(padEnd(track("code"), labelWidth))}   ${c.bold(c.blue(device.user_code))}`);
+  ctx.log(`  ${c.faint(padEnd(track("open"), labelWidth))}   ${c.under(c.muted(url))}`);
   ctx.log("");
-  ctx.log("  Approve the request only if the page shows the same code.");
+  ctx.log(
+    `  ${c.faint("⌐")} ${c.muted("Approve the request only if the page shows the same code.")}`,
+  );
   ctx.log("");
 
   if (!ctx.noBrowser && canOpenBrowser()) openBrowser(url);
-  ctx.log("waiting for approval…");
+  ctx.log(`  ${c.faint("waiting for approval…")}`);
 
   const token = await poll(origin, device.device_code, device.interval, device.expires_in);
   const identity = await fetchIdentity(origin, token.access_token).catch(() => null);
@@ -53,7 +60,11 @@ export async function login(ctx: AuthContext): Promise<Credential> {
     identity,
   };
   writeCredential(origin, credential);
-  ctx.log(`signed in as ${describe(identity)} · token cached in ${credentialPath()}`);
+  ctx.log(
+    `  ${c.ok("✓")} ${c.text(`signed in as ${describe(identity)}`)}` +
+      ` ${c.faint(`· token cached in ${displayPath(credentialPath())}`)}`,
+  );
+  ctx.log("");
   return credential;
 }
 

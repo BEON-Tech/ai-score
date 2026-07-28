@@ -72,6 +72,31 @@ export interface Payload {
   harnesses: HarnessReport[];
 }
 
+export interface DimensionScore {
+  score: number;
+  max: number;
+  signals: Record<string, number>;
+}
+
+/**
+ * The score the server computes and returns on upload.
+ *
+ * `dimensions` is deliberately an open record rather than the five keys the
+ * server ships today: the scoring service deploys independently of this CLI, so
+ * a new dimension must render as an extra row, not crash an old client.
+ */
+export interface Score {
+  total: number;
+  version: number;
+  dimensions: Record<string, DimensionScore>;
+}
+
+/** Parsed upload response. Both fields are null when the shape is unfamiliar. */
+export interface SubmissionResult {
+  id: string | null;
+  score: Score | null;
+}
+
 export interface CollectContext {
   since: Date;
   now: Date;

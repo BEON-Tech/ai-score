@@ -1,24 +1,49 @@
-import type { HarnessReport, Payload, TokenUsage } from "./types.js";
+import type { HarnessReport, Payload, Score, TokenUsage } from "./types.js";
+import {
+  bar,
+  blockText,
+  c,
+  compact,
+  cols,
+  grouped,
+  money,
+  padEnd,
+  padStart,
+  type Paint,
+  shortDate,
+  track,
+  WORDMARK,
+} from "./ui.js";
 
-function fmt(n: number): string {
-  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
-  return String(n);
+/**
+ * The report is set like a statement of account: hairline rules and negative
+ * space instead of boxes, letterspaced labels, figures right-aligned in tabular
+ * columns, and exactly one accent colour. It prints once, top to bottom, so it
+ * survives pipes, `tee`, CI logs and scrollback unchanged.
+ */
+
+const PAD = "  ";
+
+function width(): number {
+  return cols(84);
 }
 
-interface Row {
-  harness: string;
-  status: string;
-  sessions: string;
-  prompts: string;
-  toolCalls: string;
-  tokensIn: string;
-  tokensOut: string;
-  cost: string;
+function rule(): string {
+  return PAD + c.faint("─".repeat(width() - 4));
 }
 
-function aggregate(report: HarnessReport) {
+// ─── aggregation ─────────────────────────────────────────────────────────────
+
+interface Totals {
+  sessions: number;
+  prompts: number;
+  toolCalls: number;
+  tokensIn: number;
+  tokensOut: number;
+  cost: number | null;
+}
+
+function aggregate(report: HarnessReport): Omit<Totals, "sessions"> & { totals: TokenUsage } {
   const totals: TokenUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 };
   let prompts = 0;
   let toolCalls = 0;
@@ -39,98 +64,321 @@ function aggregate(report: HarnessReport) {
       totals.reasoning += usage.reasoning;
     }
   }
-  return { totals, prompts, toolCalls, cost: hasCost ? cost : null };
+  return {
+    prompts,
+    toolCalls,
+    tokensIn: totals.input + totals.cacheRead,
+    tokensOut: totals.output,
+    cost: hasCost ? cost : null,
+    totals,
+  };
 }
 
-export function renderSummary(payload: Payload, account?: string | null): string {
-  const lines: string[] = [];
-  lines.push("");
-  lines.push(`ai-score v${payload.client.version} — extraction summary`);
-  lines.push(
-    `window: last ${payload.window.days} days (${payload.window.start.slice(0, 10)} → ${payload.window.end.slice(0, 10)})`,
-  );
-  lines.push(
-    `account: ${account ?? "(not signed in — run 'ai-score login')"} · machine ${payload.engineer.machineId}`,
-  );
+/**
+ * One-line summary of a finished harness, shown transiently by the scan
+ * spinner. Deliberately not the same shape as the table row: this is a progress
+ * note, not a record.
+ */
+export function scanDetail(report: HarnessReport): string {
+  if (!report.detected) return "not installed";
+  if (report.skippedReason) return `skipped — ${report.skippedReason}`;
+  const agg = aggregate(report);
+  const parts = [
+    `${grouped(report.sessionsIncluded)} sessions`,
+    `${compact(agg.prompts)} prompts`,
+    `${compact(agg.toolCalls)} tools`,
+  ];
+  return parts.join(" · ");
+}
+
+// ─── header ──────────────────────────────────────────────────────────────────
+
+export interface HeaderInfo {
+  version: string;
+  days: number;
+  start: string;
+  end: string;
+  /** Resolved offline; null when this machine is not signed in. */
+  account: string | null;
+  machineId: string;
+}
+
+/**
+ * Printed before the scan starts, so the brand and the parameters of the run
+ * are on screen while the slow part happens.
+ */
+export function renderHeader(info: HeaderInfo): string {
+  const lines: string[] = [""];
+
+  const beside = [
+    `${c.text("ai-score")} ${c.faint(info.version)}`,
+    c.muted("AI leverage report"),
+    "",
+  ];
+  for (const [i, row] of WORDMARK.entries()) {
+    // ".tech" sits on the wordmark's baseline — the mark is BEON.tech, not BEON.
+    const suffix = i === 2 ? c.muted(".tech") : "     ";
+    lines.push(`${PAD}${c.blue(row)}${suffix}   ${beside[i] ?? ""}`.trimEnd());
+  }
   lines.push("");
 
-  const rows: Row[] = [];
+  const facts: [string, string][] = [
+    [
+      "window",
+      `${info.days} ${info.days === 1 ? "day" : "days"} ${c.faint("·")} ${shortDate(info.start, info.end)} → ${shortDate(info.end)}`,
+    ],
+    [
+      "account",
+      info.account
+        ? c.text(info.account)
+        : c.warn("not signed in") + c.faint(" — run 'ai-score login'"),
+    ],
+    ["machine", c.muted(info.machineId)],
+  ];
+  const labelWidth = Math.max(...facts.map(([label]) => track(label).length));
+  for (const [label, value] of facts) {
+    lines.push(`${PAD}${c.faint(padEnd(track(label), labelWidth))}   ${value}`);
+  }
+  lines.push("");
+  return lines.join("\n") + "\n";
+}
+
+// ─── the ledger ──────────────────────────────────────────────────────────────
+
+interface Column {
+  head: string;
+  align: "left" | "right";
+}
+
+const COLUMNS: Column[] = [
+  { head: "", align: "left" },
+  { head: "sessions", align: "right" },
+  { head: "prompts", align: "right" },
+  { head: "tool calls", align: "right" },
+  { head: "tokens in", align: "right" },
+  { head: "tokens out", align: "right" },
+  { head: "cost", align: "right" },
+];
+
+interface Cell {
+  text: string;
+  paint: Paint;
+}
+
+const cell = (text: string, paint: Paint): Cell => ({ text, paint });
+
+/** The report table, notes, and totals. */
+export function renderReport(payload: Payload): string {
+  const rows: { cells: Cell[]; suffix: string }[] = [];
+  const totals: Totals = {
+    sessions: 0,
+    prompts: 0,
+    toolCalls: 0,
+    tokensIn: 0,
+    tokensOut: 0,
+    cost: null,
+  };
+
   for (const report of payload.harnesses) {
-    if (!report.detected) {
+    // An absent harness stays in the ledger — a missing row is information —
+    // but recedes to the faintest tier so the eye skips it.
+    if (!report.detected || report.skippedReason) {
       rows.push({
-        harness: report.harness,
-        status: "not found",
-        sessions: "—",
-        prompts: "—",
-        toolCalls: "—",
-        tokensIn: "—",
-        tokensOut: "—",
-        cost: "—",
+        cells: [
+          cell(report.harness, c.faint),
+          ...Array.from({ length: 6 }, () => cell("—", c.faint)),
+        ],
+        suffix: c.faint(`   ${report.detected ? "skipped" : "not found"}`),
       });
       continue;
     }
-    if (report.skippedReason) {
-      rows.push({
-        harness: report.harness,
-        status: "skipped",
-        sessions: "—",
-        prompts: "—",
-        toolCalls: "—",
-        tokensIn: "—",
-        tokensOut: "—",
-        cost: "—",
-      });
-      continue;
-    }
+
     const agg = aggregate(report);
+    totals.sessions += report.sessionsIncluded;
+    totals.prompts += agg.prompts;
+    totals.toolCalls += agg.toolCalls;
+    totals.tokensIn += agg.tokensIn;
+    totals.tokensOut += agg.tokensOut;
+    if (agg.cost !== null) totals.cost = (totals.cost ?? 0) + agg.cost;
+
     rows.push({
-      harness: report.harness,
-      status: "ok",
-      sessions: String(report.sessionsIncluded),
-      prompts: fmt(agg.prompts),
-      toolCalls: fmt(agg.toolCalls),
-      tokensIn: fmt(agg.totals.input + agg.totals.cacheRead),
-      tokensOut: fmt(agg.totals.output),
-      cost: agg.cost === null ? "—" : `$${agg.cost.toFixed(2)}`,
+      cells: [
+        cell(report.harness, c.text),
+        cell(grouped(report.sessionsIncluded), c.text),
+        cell(grouped(agg.prompts), c.text),
+        cell(grouped(agg.toolCalls), c.text),
+        cell(compact(agg.tokensIn), c.muted),
+        cell(compact(agg.tokensOut), c.muted),
+        agg.cost === null ? cell("—", c.faint) : cell(money(agg.cost), c.text),
+      ],
+      suffix: "",
     });
   }
 
-  const header: Row = {
-    harness: "harness",
-    status: "status",
-    sessions: "sessions",
-    prompts: "prompts",
-    toolCalls: "tool calls",
-    tokensIn: "tokens in",
-    tokensOut: "tokens out",
-    cost: "cost",
-  };
-  const columns = Object.keys(header) as (keyof Row)[];
-  const widths = Object.fromEntries(
-    columns.map((c) => [c, Math.max(header[c].length, ...rows.map((r) => r[c].length))]),
-  ) as Record<keyof Row, number>;
-  const renderRow = (r: Row) =>
-    "  " +
-    columns
-      .map((c) => (c === "harness" ? r[c].padEnd(widths[c]) : r[c].padStart(widths[c])))
-      .join("  ");
-  lines.push(renderRow(header));
-  lines.push("  " + columns.map((c) => "-".repeat(widths[c])).join("  "));
-  for (const row of rows) lines.push(renderRow(row));
+  const totalRow: Cell[] = [
+    cell(track("total"), c.faint),
+    cell(grouped(totals.sessions), (s) => c.bold(c.text(s))),
+    cell(grouped(totals.prompts), (s) => c.bold(c.text(s))),
+    cell(grouped(totals.toolCalls), (s) => c.bold(c.text(s))),
+    cell(compact(totals.tokensIn), (s) => c.bold(c.text(s))),
+    cell(compact(totals.tokensOut), (s) => c.bold(c.text(s))),
+    totals.cost === null ? cell("—", c.faint) : cell(money(totals.cost), (s) => c.bold(c.text(s))),
+  ];
 
+  // Width from the unpainted text, so escape codes can never skew a column.
+  const widths = COLUMNS.map((col, i) =>
+    Math.max(
+      col.head.length,
+      ...rows.map((r) => (r.cells[i] as Cell).text.length),
+      (totalRow[i] as Cell).text.length,
+    ),
+  );
+
+  const line = (cells: Cell[]): string =>
+    PAD +
+    cells
+      .map((cl, i) => {
+        const painted = cl.paint(cl.text);
+        const w = (widths[i] as number) + (i === 0 ? 2 : 3);
+        return COLUMNS[i]?.align === "left" ? padEnd(painted, w) : padStart(painted, w);
+      })
+      .join("")
+      .trimEnd();
+
+  const out: string[] = [];
+  out.push(line(COLUMNS.map((col) => cell(col.head, c.faint))));
+  for (const row of rows) out.push(line(row.cells) + row.suffix);
+  out.push(rule());
+  out.push(line(totalRow));
+
+  const notes: string[] = [];
   for (const report of payload.harnesses) {
-    if (report.skippedReason)
-      lines.push(`  note: ${report.harness} skipped — ${report.skippedReason}`);
-    if (report.parseErrors > 0)
-      lines.push(
-        `  note: ${report.harness} had ${report.parseErrors} unparseable records (skipped, counted)`,
+    if (report.skippedReason) notes.push(`${report.harness} skipped — ${report.skippedReason}`);
+    if (report.parseErrors > 0) {
+      notes.push(
+        `${report.harness} — ${grouped(report.parseErrors)} unreadable records, skipped and counted`,
       );
+    }
+  }
+  if (notes.length > 0) {
+    out.push("");
+    for (const note of notes) out.push(`${PAD}${c.faint("⌐")} ${c.muted(note)}`);
+  }
+  out.push("");
+  return out.join("\n") + "\n";
+}
+
+/**
+ * The privacy promise, compressed to the ledger's voice. The full contract lives
+ * in WIRE_FORMAT.md; this is the reminder, not the document.
+ */
+export function renderPrivacy(): string {
+  const label = track("privacy");
+  const indent = " ".repeat(label.length);
+  return (
+    [
+      rule(),
+      "",
+      `${PAD}${c.faint(label)}   ${c.muted("counts, model ids, timestamps and one-way hashes only.")}`,
+      `${PAD}${indent}   ${c.muted("No code, prompts, file paths or message text.")}`,
+      `${PAD}${indent}   ${c.faint("--audit prints the exact payload before anything is sent.")}`,
+      "",
+    ].join("\n") + "\n"
+  );
+}
+
+// ─── score ───────────────────────────────────────────────────────────────────
+
+/** Shared vocabulary so a given total always reads the same way. */
+function band(total: number, max: number): { label: string; tone: Paint } {
+  const pct = max > 0 ? total / max : 0;
+  if (pct >= 0.85) return { label: "exceptional", tone: c.ok };
+  if (pct >= 0.7) return { label: "strong", tone: c.blue };
+  if (pct >= 0.5) return { label: "developing", tone: c.warn };
+  return { label: "early", tone: c.faint };
+}
+
+/** What each dimension actually measures, in the engineer's terms. */
+const DIMENSION_COPY: Record<string, string> = {
+  leverage: "how much work per prompt",
+  craft: "clean runs, few retries",
+  output: "shipped, not just chatted",
+  customization: "MCP, hooks, subagents",
+  efficiency: "cache reuse, multi-harness",
+};
+
+/**
+ * Replaces what used to be `body.slice(0, 200)` of the raw JSON response — the
+ * server already returns a per-dimension breakdown, so there is no reason to
+ * show it as a truncated object.
+ */
+export function renderScore(score: Score, submissionId: string | null): string {
+  const entries = Object.entries(score.dimensions);
+  const outOf = entries.reduce((sum, [, d]) => sum + d.max, 0);
+  const { label, tone } = band(score.total, outOf);
+  const digits = blockText(formatScore(score.total));
+
+  const out: string[] = [rule(), ""];
+
+  // The figure and its meaning sit side by side: one glance, not two.
+  const beside = [
+    c.faint(track("ai score")),
+    `${c.bold(tone(formatScore(score.total)))} ${c.faint(`of ${outOf || 100}`)}   ${tone(label)}`,
+    score.version > 0 ? c.faint(`scoring v${score.version}`) : "",
+  ];
+  for (const [i, row] of digits.entries()) {
+    out.push(`${PAD}${tone(row)}    ${beside[i] ?? ""}`.trimEnd());
   }
 
-  lines.push("");
-  lines.push("privacy: only structural metadata is collected — tool names, model ids, counts,");
-  lines.push("timestamps and one-way hashes. No code, prompts, file paths or message text.");
-  lines.push("run with --audit to print the exact payload before anything is sent.");
-  lines.push("");
-  return lines.join("\n");
+  if (entries.length > 0) {
+    out.push("");
+    const nameWidth = Math.max(...entries.map(([name]) => name.length));
+    const copyWidth = Math.max(...entries.map(([name]) => (DIMENSION_COPY[name] ?? "").length));
+    const figureWidth = Math.max(
+      ...entries.map(([, d]) => `${formatScore(d.score)}/${d.max}`.length),
+    );
+    // Keep the meter inside the terminal even on a narrow window.
+    const meterWidth = Math.max(
+      8,
+      Math.min(18, width() - 4 - nameWidth - copyWidth - figureWidth - 8),
+    );
+
+    for (const [name, d] of entries) {
+      const ratio = d.max > 0 ? d.score / d.max : 0;
+      const tint = ratio >= 0.9 ? c.ok : ratio >= 0.6 ? c.blue : c.warn;
+      const figure = c.text(formatScore(d.score)) + c.faint(`/${d.max}`);
+      out.push(
+        PAD +
+          padEnd(c.text(name), nameWidth + 2) +
+          padEnd(c.faint(DIMENSION_COPY[name] ?? ""), copyWidth + 3) +
+          padStart(figure, figureWidth + 1) +
+          "  " +
+          tint(bar(d.score, d.max, meterWidth)),
+      );
+    }
+  }
+
+  if (submissionId) {
+    out.push("");
+    // Set as a note rather than a labelled field: it is a support reference, not
+    // a headline. Plain text, not a link — the server has no submission-view
+    // route yet, and printing a URL that 404s is worse than printing none.
+    out.push(`${PAD}${c.faint("⌐")} ${c.muted(`submission ${submissionId}`)}`);
+  }
+  out.push("");
+  return out.join("\n") + "\n";
+}
+
+/** Trims a trailing ".0" so whole scores read as "92", not "92.0". */
+function formatScore(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+/**
+ * Shown when the upload succeeded but the response was not a score we
+ * recognise — the submission still landed, and saying so beats printing JSON.
+ */
+export function renderUploaded(status: number, id: string | null): string {
+  const detail = id ? c.faint(` · ${id}`) : "";
+  return `${PAD}${c.ok("✓")} ${c.text("report uploaded")} ${c.faint(`(HTTP ${status})`)}${detail}\n`;
 }
