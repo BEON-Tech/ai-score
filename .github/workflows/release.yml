@@ -40,9 +40,15 @@ jobs:
 
       - run: pnpm build
 
+      # Tests run against dist/, so they have to come after the build.
+      - run: pnpm test
+
+      # No credentials here on purpose: --dry-run must stay usable with no token
+      # and no TTY, which is what an unauthenticated engineer hits first.
       - name: Smoke test
         run: |
           node dist/cli.js --version
+          node dist/cli.js --help
           node dist/cli.js --dry-run
 
       - name: Bump version

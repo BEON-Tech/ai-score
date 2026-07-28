@@ -1,4 +1,4 @@
-# Wire format — `beon.ai-score.v1`
+# Wire format — `beon.ai-score.v2`
 
 This document is the complete specification of what `@beon-tech/ai-score` sends over
 the network. If a field is not listed here, it is not collected. You can verify
@@ -7,6 +7,29 @@ this yourself at any time:
 ```sh
 npx @beon-tech/ai-score --dry-run --audit   # prints the exact payload, sends nothing
 ```
+
+## Changes in v2
+
+`engineer.email` is gone. v1 asserted the submitter's identity in the payload
+body, with nothing on the server able to verify it. v2 sends an access token
+instead and the server resolves identity from it, so the client no longer
+claims to be anyone. See [Request headers](#request-headers).
+
+## Request headers
+
+The payload is not the only thing on the wire, so for completeness:
+
+| Header          | Value                                                     |
+| --------------- | --------------------------------------------------------- |
+| `content-type`  | `application/json`                                        |
+| `user-agent`    | `beon-ai-score/<client version>`                          |
+| `authorization` | `Bearer <token>` — issued by Beon, obtained by signing in |
+
+The token is a Beon session token, cached at `~/.config/beon/ai-score.json`
+with `0600` permissions. It is never a GitHub or GitLab credential: the
+provider handshake happens in your browser, and this CLI never sees its result.
+Obtaining it involves two further requests, which carry no payload and no
+personal data — `POST /api/auth/device/code` and `POST /api/auth/device/token`.
 
 ## Guarantees
 
@@ -20,20 +43,22 @@ The payload **never** contains:
 - tool arguments or tool outputs (only tool _names_ and counts)
 - environment variables, hostnames, or usernames (machine identity is a
   16-char SHA-256 prefix of `hostname:username`)
+- your email, name, or any other identity field — the payload says nothing
+  about who you are; attribution comes from the access token in the
+  `authorization` header
 
 The payload **does** contain: tool names, model ids, token counts, cost totals
 where the harness records them, timestamps, mode/policy enum values, harness
-version strings, your email (for attribution), and one-way hashes.
+version strings, and one-way hashes.
 
 ## Top level
 
 | Field                | Type                   | Meaning                                        |
 | -------------------- | ---------------------- | ---------------------------------------------- |
-| `schema`             | `"beon.ai-score.v1"`   | format version; bump on breaking change        |
+| `schema`             | `"beon.ai-score.v2"`   | format version; bump on breaking change        |
 | `client`             | `{ name, version }`    | this CLI's package name and version            |
 | `generatedAt`        | ISO 8601               | when extraction ran                            |
 | `window`             | `{ days, start, end }` | look-back window that was scanned              |
-| `engineer.email`     | string \| null         | `--email` flag, else `git config user.email`   |
 | `engineer.machineId` | string                 | `sha256(hostname:username)` first 16 hex chars |
 | `platform`           | `{ os, arch, node }`   | e.g. `darwin`, `arm64`, `24.1.0`               |
 | `harnesses`          | `HarnessReport[]`      | one entry per supported harness                |

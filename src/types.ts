@@ -59,11 +59,15 @@ export interface HarnessReport {
 }
 
 export interface Payload {
-  schema: "beon.ai-score.v1";
+  schema: "beon.ai-score.v2";
   client: { name: string; version: string };
   generatedAt: string;
   window: { days: number; start: string; end: string };
-  engineer: { email: string | null; machineId: string };
+  /**
+   * v2 removed `email`: identity is resolved server-side from the submitter's
+   * access token, so the client no longer asserts who it is.
+   */
+  engineer: { machineId: string };
   platform: { os: string; arch: string; node: string };
   harnesses: HarnessReport[];
 }

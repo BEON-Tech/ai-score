@@ -42,7 +42,7 @@ function aggregate(report: HarnessReport) {
   return { totals, prompts, toolCalls, cost: hasCost ? cost : null };
 }
 
-export function renderSummary(payload: Payload): string {
+export function renderSummary(payload: Payload, account?: string | null): string {
   const lines: string[] = [];
   lines.push("");
   lines.push(`ai-score v${payload.client.version} — extraction summary`);
@@ -50,7 +50,7 @@ export function renderSummary(payload: Payload): string {
     `window: last ${payload.window.days} days (${payload.window.start.slice(0, 10)} → ${payload.window.end.slice(0, 10)})`,
   );
   lines.push(
-    `engineer: ${payload.engineer.email ?? "(no email — pass --email)"} · machine ${payload.engineer.machineId}`,
+    `account: ${account ?? "(not signed in — run 'ai-score login')"} · machine ${payload.engineer.machineId}`,
   );
   lines.push("");
 
