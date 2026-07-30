@@ -106,6 +106,50 @@ describe("cursor-cli / foldMessages", () => {
     foldMessages([{ role: "assistant", content: [{ type: "tool-call" }] }], s);
     assert.deepEqual(s.tools, { unknown: 1 });
   });
+
+  it("derives verified workflow evidence without retaining tool arguments", () => {
+    const s = newSessionRecord("id", "project");
+    foldMessages(
+      [
+        { role: "user", content: [{ type: "text", text: "fix it" }] },
+        {
+          role: "assistant",
+          content: [{ type: "tool-call", toolName: "Edit", toolCallId: "e1", input: {} }],
+        },
+        {
+          role: "tool",
+          content: [{ type: "tool-result", toolName: "Edit", toolCallId: "e1", isError: false }],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolName: "Bash",
+              toolCallId: "t1",
+              input: { command: "pnpm test" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolName: "Bash",
+              toolCallId: "t1",
+              output: "Process exited with code 0",
+            },
+          ],
+        },
+      ],
+      s,
+    );
+
+    assert.equal(s.workflow.codeChange, "success");
+    assert.equal(s.workflow.finalVerification, "passed");
+    assert.equal(s.workflow.autonomousVerifiedChange, true);
+  });
 });
 
 describe("cursor-ide / workspacePath", () => {

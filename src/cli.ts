@@ -25,6 +25,7 @@ import {
   renderReport,
   renderScore,
   renderUploaded,
+  renderVerifiedWorkflow,
   scanDetail,
 } from "./summary.js";
 import type { HarnessName, Payload } from "./types.js";
@@ -43,11 +44,10 @@ Usage
   npx @beon-tech/ai-score whoami           show who this machine is signed in as
 
 Scans local session data from Claude Code, Codex, Cursor, OpenCode and pi,
-normalizes it into structural metadata (tool names, model ids, counts,
-timestamps, hashed ids — never code, prompts, file paths or message text) and
-submits it to the Beon scoring service. Submissions are attributed to the
-account you sign in as; the server derives your identity from the token, so
-nothing about your identity is taken from this machine.
+normalizes it into structural metadata and locally derived workflow states.
+Tool arguments and result statuses are inspected only long enough to classify
+edits and checks; their raw values, code, prompts, paths and message text are
+never sent. Submissions are attributed to the account you sign in as.
 
 Options
   --days <n>          look-back window in days (default: 30)
@@ -205,7 +205,7 @@ async function main(): Promise<void> {
 
   const payload: Payload = {
     schema: "beon.ai-score.v2",
-    client: { name: "@beon-tech/ai-score", version },
+    client: { name: "@beon-tech/ai-score", version, workflowClassifierVersion: 1 },
     generatedAt: now.toISOString(),
     window: { days, start: since.toISOString(), end: now.toISOString() },
     engineer: { machineId },
@@ -262,8 +262,12 @@ async function main(): Promise<void> {
     const { status, result } = await send(target.submissionsUrl, payload, token);
     // The server returns a per-dimension breakdown; render it rather than
     // printing the first 200 characters of the response object.
-    if (result.score) process.stderr.write(renderScore(result.score, result.id));
-    else process.stderr.write(renderUploaded(status, result.id));
+    if (result.verifiedWorkflow) {
+      process.stderr.write(renderVerifiedWorkflow(result.verifiedWorkflow));
+    }
+    if (result.score) {
+      process.stderr.write(renderScore(result.score, result.id, result.verifiedWorkflow !== null));
+    } else process.stderr.write(renderUploaded(status, result.id));
   } catch (err) {
     if (err instanceof UnauthorizedError) {
       // Drop the dead token so the next run does not repeat this failure.

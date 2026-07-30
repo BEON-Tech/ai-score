@@ -1,4 +1,11 @@
-import type { DimensionScore, Payload, Score, SubmissionResult } from "./types.js";
+import type {
+  DimensionScore,
+  Payload,
+  Score,
+  SubmissionResult,
+  VerifiedWorkflowResult,
+  WorkflowEvidenceSummary,
+} from "./types.js";
 
 /** The server rejected our token; the caller should drop it and re-login. */
 export class UnauthorizedError extends Error {
@@ -30,6 +37,60 @@ function parseDimension(value: unknown): DimensionScore | null {
   return { score: value["score"], max: value["max"], signals };
 }
 
+function parseEvidence(value: unknown): WorkflowEvidenceSummary | null {
+  if (!isRecord(value)) return null;
+  const keys = [
+    "codingSessions",
+    "unclassifiedSessions",
+    "observableSessions",
+    "coverage",
+    "checksAttempted",
+    "verifiedCompletions",
+    "autonomousCompletions",
+    "recoveredFailures",
+    "deliveriesObserved",
+  ] as const;
+  if (keys.some((key) => !isFiniteNumber(value[key]))) return null;
+  return Object.fromEntries(
+    keys.map((key) => [key, value[key]]),
+  ) as unknown as WorkflowEvidenceSummary;
+}
+
+function parseWorkflow(value: unknown): VerifiedWorkflowResult | null {
+  if (!isRecord(value) || !isFiniteNumber(value["scoringVersion"])) return null;
+  const evidence = parseEvidence(value["evidence"]);
+  if (!evidence) return null;
+  if (value["status"] === "insufficient_evidence" && Array.isArray(value["reasonCodes"])) {
+    return {
+      status: "insufficient_evidence",
+      scoringVersion: value["scoringVersion"],
+      reasonCodes: value["reasonCodes"].filter(
+        (reason): reason is string => typeof reason === "string",
+      ),
+      evidence,
+    };
+  }
+  if (
+    value["status"] !== "scored" ||
+    !isFiniteNumber(value["total"]) ||
+    !isRecord(value["dimensions"])
+  ) {
+    return null;
+  }
+  const dimensions: Record<string, DimensionScore> = {};
+  for (const [name, raw] of Object.entries(value["dimensions"])) {
+    const dimension = parseDimension(raw);
+    if (dimension) dimensions[name] = dimension;
+  }
+  return {
+    status: "scored",
+    scoringVersion: value["scoringVersion"],
+    total: value["total"],
+    dimensions,
+    evidence,
+  };
+}
+
 /**
  * Reads `{ id, score }` out of the upload response, tolerating anything else.
  *
@@ -43,14 +104,15 @@ export function parseSubmission(body: string): SubmissionResult {
   try {
     root = JSON.parse(body);
   } catch {
-    return { id: null, score: null };
+    return { id: null, score: null, verifiedWorkflow: null };
   }
-  if (!isRecord(root)) return { id: null, score: null };
+  if (!isRecord(root)) return { id: null, score: null, verifiedWorkflow: null };
 
   const id = typeof root["id"] === "string" ? root["id"] : null;
+  const verifiedWorkflow = parseWorkflow(root["verifiedWorkflow"]);
   const raw = root["score"];
   if (!isRecord(raw) || !isFiniteNumber(raw["total"]) || !isRecord(raw["dimensions"])) {
-    return { id, score: null };
+    return { id, score: null, verifiedWorkflow };
   }
 
   const dimensions: Record<string, DimensionScore> = {};
@@ -64,7 +126,7 @@ export function parseSubmission(body: string): SubmissionResult {
     version: isFiniteNumber(raw["version"]) ? raw["version"] : 0,
     dimensions,
   };
-  return { id, score };
+  return { id, score, verifiedWorkflow };
 }
 
 export async function send(

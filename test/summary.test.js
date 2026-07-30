@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseSubmission } from "../dist/send.js";
-import { renderReport, renderScore, renderUploaded } from "../dist/summary.js";
+import {
+  renderReport,
+  renderScore,
+  renderUploaded,
+  renderVerifiedWorkflow,
+} from "../dist/summary.js";
 import { blockText, compact, padStart, vlen } from "../dist/ui.js";
 
 /**
@@ -27,11 +32,32 @@ const FULL_BODY = JSON.stringify({
       efficiency: dimension(5, 5),
     },
   },
+  verifiedWorkflow: {
+    status: "scored",
+    scoringVersion: 1,
+    total: 80,
+    dimensions: {
+      verification: { score: 18, max: 20, signals: { attempted: 9, eligible: 10 } },
+      completion: { score: 56, max: 70, signals: { passed: 8, eligible: 10 } },
+      autonomy: { score: 6, max: 10, signals: { autonomous: 6, eligible: 10 } },
+    },
+    evidence: {
+      codingSessions: 12,
+      unclassifiedSessions: 0,
+      observableSessions: 10,
+      coverage: 10 / 12,
+      checksAttempted: 9,
+      verifiedCompletions: 8,
+      autonomousCompletions: 6,
+      recoveredFailures: 2,
+      deliveriesObserved: 4,
+    },
+  },
 });
 
 describe("parseSubmission", () => {
   it("reads id and every dimension out of a well-formed response", () => {
-    const { id, score } = parseSubmission(FULL_BODY);
+    const { id, score, verifiedWorkflow } = parseSubmission(FULL_BODY);
     assert.equal(id, "6332871d-0f63-4973-8a46-a0803b534670");
     assert.equal(score.total, 92);
     assert.equal(score.version, 1);
@@ -43,6 +69,9 @@ describe("parseSubmission", () => {
       "efficiency",
     ]);
     assert.equal(score.dimensions.leverage.signals.toolCallsPerPrompt, 20.6);
+    assert.equal(verifiedWorkflow.status, "scored");
+    assert.equal(verifiedWorkflow.total, 80);
+    assert.equal(verifiedWorkflow.evidence.observableSessions, 10);
   });
 
   it("keeps dimensions the client has never heard of", () => {
@@ -58,19 +87,28 @@ describe("parseSubmission", () => {
   // succeeded by the time the body is parsed, so throwing would turn a
   // successful submission into a reported failure.
   it("returns nulls for a non-JSON body", () => {
-    assert.deepEqual(parseSubmission("<html>502 Bad Gateway</html>"), { id: null, score: null });
+    assert.deepEqual(parseSubmission("<html>502 Bad Gateway</html>"), {
+      id: null,
+      score: null,
+      verifiedWorkflow: null,
+    });
   });
 
   it("returns nulls for JSON that is not an object", () => {
-    assert.deepEqual(parseSubmission("[1,2,3]"), { id: null, score: null });
-    assert.deepEqual(parseSubmission("null"), { id: null, score: null });
-    assert.deepEqual(parseSubmission('"ok"'), { id: null, score: null });
+    assert.deepEqual(parseSubmission("[1,2,3]"), {
+      id: null,
+      score: null,
+      verifiedWorkflow: null,
+    });
+    assert.deepEqual(parseSubmission("null"), { id: null, score: null, verifiedWorkflow: null });
+    assert.deepEqual(parseSubmission('"ok"'), { id: null, score: null, verifiedWorkflow: null });
   });
 
   it("keeps the id even when the score is unusable", () => {
     assert.deepEqual(parseSubmission('{"id":"abc","score":{"total":"nope"}}'), {
       id: "abc",
       score: null,
+      verifiedWorkflow: null,
     });
   });
 
@@ -114,6 +152,32 @@ describe("parseSubmission", () => {
   });
 });
 
+describe("renderVerifiedWorkflow", () => {
+  const workflow = parseSubmission(FULL_BODY).verifiedWorkflow;
+
+  it("renders the inferred score, dimensions, and evidence coverage", () => {
+    const out = plain(renderVerifiedWorkflow(workflow));
+    assert.match(out, /V E R I F I E D\s+W O R K F L O W/);
+    assert.match(out, /80 of 100/);
+    assert.match(out, /10 observable \/ 12 evidence candidates/);
+    assert.match(out, /83\.3% coverage/);
+  });
+
+  it("explains an insufficient result without inventing a zero", () => {
+    const out = plain(
+      renderVerifiedWorkflow({
+        status: "insufficient_evidence",
+        scoringVersion: 1,
+        reasonCodes: ["MIN_OBSERVABLE_SESSIONS"],
+        evidence: { ...workflow.evidence, codingSessions: 3, observableSessions: 3, coverage: 1 },
+      }),
+    );
+    assert.match(out, /not scored/);
+    assert.match(out, /at least 5 observable coding sessions/);
+    assert.doesNotMatch(out, /0 of 100/);
+  });
+});
+
 describe("renderScore", () => {
   const score = parseSubmission(FULL_BODY).score;
 
@@ -146,6 +210,11 @@ describe("renderScore", () => {
   it("includes the submission id as a note when given", () => {
     assert.match(plain(renderScore(score, "abc-123")), /submission abc-123/);
     assert.doesNotMatch(plain(renderScore(score, null)), /submission/);
+  });
+
+  it("only labels usage as secondary when the server returned workflow evidence", () => {
+    assert.doesNotMatch(plain(renderScore(score, null)), /determines rank/);
+    assert.match(plain(renderScore(score, null, true)), /determines rank/);
   });
 
   it("bands the total by percentage, not by raw points", () => {

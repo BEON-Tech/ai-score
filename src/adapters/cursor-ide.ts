@@ -13,6 +13,7 @@ import {
   toMs,
   usageBucket,
 } from "../util.js";
+import { toolOutcome, WorkflowTracker } from "../workflow.js";
 
 /**
  * The Cursor desktop app is a VS Code fork, so its chat history lives in the
@@ -116,6 +117,7 @@ export function foldComposer(
   bubbles: any[],
   projectId: string,
   isSubagent: boolean,
+  sequenceKnown = true,
 ): SessionRecord {
   const s = newSessionRecord(hash16(String(composer.composerId)), projectId);
   s.isSubagent = isSubagent;
@@ -131,6 +133,11 @@ export function foldComposer(
   let turnStart: number | null = null;
   let turnEnd: number | null = null;
   let turnTools = 0;
+  const workflow = new WorkflowTracker({
+    sequenceKnown,
+    commandObservation: true,
+    deliveryObservation: true,
+  });
 
   const closeTurn = () => {
     if (!inTurn) return;
@@ -152,6 +159,7 @@ export function foldComposer(
       closeTurn();
       s.counts.userPrompts++;
       s.agentic.turns++;
+      workflow.humanTurn();
       inTurn = true;
       turnStart = times[0] ?? null;
     }
@@ -159,7 +167,8 @@ export function foldComposer(
       turnStart ??= times[0] as number;
       turnEnd = Math.max(turnEnd ?? 0, times[times.length - 1] as number);
     }
-    s.outcome.prLinks += Array.isArray(b.pullRequests) ? b.pullRequests.length : 0;
+    const pullRequests = Array.isArray(b.pullRequests) ? b.pullRequests.length : 0;
+    s.outcome.prLinks += pullRequests;
 
     const model = b.modelInfo?.modelName ?? sessionModel;
     if (typeof model === "string") models.add(model);
@@ -180,6 +189,16 @@ export function foldComposer(
     const name = typeof tool.name === "string" ? tool.name : "unknown";
     s.counts.toolCalls++;
     s.tools[name] = (s.tools[name] ?? 0) + 1;
+    workflow.toolCall(
+      name,
+      tool.input ?? tool.args ?? tool.params ?? tool,
+      typeof tool.callId === "string"
+        ? tool.callId
+        : typeof tool.toolCallId === "string"
+          ? tool.toolCallId
+          : null,
+      toolOutcome(tool),
+    );
     turnTools++;
     if (name.startsWith("mcp")) mcpCalls++;
     if (tool.status === "error") s.counts.toolErrors++;
@@ -210,6 +229,13 @@ export function foldComposer(
   s.outcome.additions = numberOrNull(composer.totalLinesAdded);
   s.outcome.deletions = numberOrNull(composer.totalLinesRemoved);
   s.outcome.filesChanged = numberOrNull(composer.filesChangedCount);
+  if (
+    (s.outcome.additions ?? 0) > 0 ||
+    (s.outcome.deletions ?? 0) > 0 ||
+    (s.outcome.filesChanged ?? 0) > 0
+  ) {
+    workflow.changedSession();
+  }
 
   s.flags = {
     modes: composer.unifiedMode ? [String(composer.unifiedMode)] : [],
@@ -220,6 +246,7 @@ export function foldComposer(
     billedRequests: requests,
     thinkingBlocks: thinking,
   };
+  s.workflow = workflow.finish();
   return s;
 }
 
@@ -287,16 +314,21 @@ function collectSessions(db: any, report: HarnessReport, ctx: any, projects: Map
     ctx.verbose(`cursor-ide: composer ${composer.composerId}`);
 
     const bubbles: any[] = [];
+    let sequenceKnown = true;
     for (const header of composer.fullConversationHeadersOnly ?? []) {
       if (typeof header?.bubbleId !== "string") continue;
       const row = bubbleStmt.get(`bubbleId:${composer.composerId}:${header.bubbleId}`);
-      if (!row) continue;
+      if (!row) {
+        sequenceKnown = false;
+        continue;
+      }
       try {
         const bubble = JSON.parse(String(row.value));
         // The header knows the role even when the bubble has dropped its own.
         if (bubble && typeof bubble === "object") bubbles.push({ type: header.type, ...bubble });
       } catch {
         report.parseErrors++;
+        sequenceKnown = false;
       }
     }
 
@@ -305,6 +337,7 @@ function collectSessions(db: any, report: HarnessReport, ctx: any, projects: Map
       bubbles,
       projects.get(composer.composerId) ?? "unknown",
       subComposerIds.has(composer.composerId),
+      sequenceKnown,
     );
     if (
       s.counts.userPrompts === 0 &&

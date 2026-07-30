@@ -13,6 +13,7 @@ import {
   toMs,
   usageBucket,
 } from "../util.js";
+import { toolOutcome, WorkflowTracker } from "../workflow.js";
 
 export const opencode: Adapter = {
   harness: "opencode",
@@ -49,9 +50,14 @@ export const opencode: Adapter = {
            ORDER BY time_updated ASC`,
         )
         .all(ctx.since.getTime());
-      const msgStmt = db.prepare("SELECT data FROM message WHERE session_id = ?");
-      const partStmt = db.prepare(
-        `SELECT data FROM part WHERE session_id = ? AND json_extract(data, '$.type') = 'tool'`,
+      const eventStmt = db.prepare(
+        `SELECT 'message' AS kind, id, data, time_created
+         FROM message WHERE session_id = ?
+         UNION ALL
+         SELECT 'part' AS kind, id, data, time_created
+         FROM part
+         WHERE session_id = ? AND json_extract(data, '$.type') = 'tool'
+         ORDER BY time_created ASC, id ASC`,
       );
 
       for (const row of sessionRows) {
@@ -65,48 +71,63 @@ export const opencode: Adapter = {
         s.outcome.additions = row.summary_additions == null ? null : Number(row.summary_additions);
         s.outcome.deletions = row.summary_deletions == null ? null : Number(row.summary_deletions);
         s.outcome.filesChanged = row.summary_files == null ? null : Number(row.summary_files);
-
-        const agents = new Set<string>();
-        for (const msgRow of msgStmt.all(String(row.id))) {
-          let data: any;
-          try {
-            data = JSON.parse(String(msgRow.data));
-          } catch {
-            report.parseErrors++;
-            continue;
-          }
-          if (data.role === "user") {
-            s.counts.userPrompts++;
-            s.agentic.turns++;
-          } else if (data.role === "assistant") {
-            s.counts.assistantMessages++;
-            if (typeof data.agent === "string") agents.add(data.agent);
-            const model = `${data.providerID ?? "unknown"}/${data.modelID ?? "unknown"}`;
-            const tokens = data.tokens ?? {};
-            const bucket = usageBucket(s.models, model);
-            bucket.input += Number(tokens.input) || 0;
-            bucket.output += Number(tokens.output) || 0;
-            bucket.reasoning += Number(tokens.reasoning) || 0;
-            bucket.cacheRead += Number(tokens.cache?.read) || 0;
-            bucket.cacheWrite += Number(tokens.cache?.write) || 0;
-          }
+        const workflow = new WorkflowTracker({
+          sequenceKnown: true,
+          commandObservation: true,
+          deliveryObservation: true,
+        });
+        if (
+          (s.outcome.additions ?? 0) > 0 ||
+          (s.outcome.deletions ?? 0) > 0 ||
+          (s.outcome.filesChanged ?? 0) > 0
+        ) {
+          workflow.changedSession();
         }
 
-        for (const partRow of partStmt.all(String(row.id))) {
+        const agents = new Set<string>();
+        for (const eventRow of eventStmt.all(String(row.id), String(row.id))) {
           let data: any;
           try {
-            data = JSON.parse(String(partRow.data));
+            data = JSON.parse(String(eventRow.data));
           } catch {
             report.parseErrors++;
+            workflow.uncertainSequence();
             continue;
           }
+          if (eventRow.kind === "message") {
+            if (data.role === "user") {
+              s.counts.userPrompts++;
+              s.agentic.turns++;
+              workflow.humanTurn();
+            } else if (data.role === "assistant") {
+              s.counts.assistantMessages++;
+              if (typeof data.agent === "string") agents.add(data.agent);
+              const model = `${data.providerID ?? "unknown"}/${data.modelID ?? "unknown"}`;
+              const tokens = data.tokens ?? {};
+              const bucket = usageBucket(s.models, model);
+              bucket.input += Number(tokens.input) || 0;
+              bucket.output += Number(tokens.output) || 0;
+              bucket.reasoning += Number(tokens.reasoning) || 0;
+              bucket.cacheRead += Number(tokens.cache?.read) || 0;
+              bucket.cacheWrite += Number(tokens.cache?.write) || 0;
+            }
+            continue;
+          }
+
           const name = typeof data.tool === "string" ? data.tool : "unknown";
           s.counts.toolCalls++;
           s.tools[name] = (s.tools[name] ?? 0) + 1;
           if (data.state?.status === "error") s.counts.toolErrors++;
+          workflow.toolCall(
+            name,
+            data.state?.input ?? data.input,
+            typeof data.callID === "string" ? data.callID : null,
+            toolOutcome(data.state),
+          );
         }
 
         s.flags = { agents: [...agents].sort() };
+        s.workflow = workflow.finish();
         report.sessions.push(s);
         report.sessionsIncluded++;
       }

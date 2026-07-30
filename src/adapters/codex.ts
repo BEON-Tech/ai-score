@@ -13,6 +13,7 @@ import {
   toMs,
   usageBucket,
 } from "../util.js";
+import { toolOutcome, WorkflowTracker } from "../workflow.js";
 
 async function parseSession(
   file: string,
@@ -33,6 +34,11 @@ async function parseSession(
   let lastTs: number | null = null;
   let turnStart: number | null = null;
   let turnTools = 0;
+  const workflow = new WorkflowTracker({
+    sequenceKnown: true,
+    commandObservation: true,
+    deliveryObservation: true,
+  });
 
   const closeTurn = (endTs: number | null) => {
     if (turnStart === null) return;
@@ -47,11 +53,13 @@ async function parseSession(
   for await (const parsed of jsonlRecords(file)) {
     if (!parsed.ok) {
       report.parseErrors++;
+      workflow.uncertainSequence();
       continue;
     }
     const r: any = parsed.value;
     if (!r || typeof r !== "object") {
       report.parseErrors++;
+      workflow.uncertainSequence();
       continue;
     }
     const ts = toMs(r.timestamp);
@@ -93,9 +101,21 @@ async function parseSession(
             const name = typeof p.name === "string" ? p.name : "unknown";
             s.counts.toolCalls++;
             s.tools[name] = (s.tools[name] ?? 0) + 1;
+            workflow.toolCall(
+              name,
+              p.arguments ?? p.input,
+              typeof p.call_id === "string" ? p.call_id : typeof p.id === "string" ? p.id : null,
+            );
             turnTools++;
             break;
           }
+          case "function_call_output":
+          case "custom_tool_call_output":
+            workflow.toolResult(
+              toolOutcome(p.output ?? p.result ?? p),
+              typeof p.call_id === "string" ? p.call_id : typeof p.id === "string" ? p.id : null,
+            );
+            break;
         }
         break;
       }
@@ -105,6 +125,7 @@ async function parseSession(
             closeTurn(ts);
             s.counts.userPrompts++;
             s.agentic.turns++;
+            workflow.humanTurn();
             turnStart = ts;
             break;
           case "token_count":
@@ -160,6 +181,7 @@ async function parseSession(
     errors,
     gitRepo,
   };
+  s.workflow = workflow.finish();
   return s;
 }
 
