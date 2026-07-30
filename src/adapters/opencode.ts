@@ -123,6 +123,7 @@ export const opencode: Adapter = {
             data.state?.input ?? data.input,
             typeof data.callID === "string" ? data.callID : null,
             toolOutcome(data.state),
+            typeof data.state?.output === "string" ? data.state.output : null,
           );
         }
 

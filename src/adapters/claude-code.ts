@@ -113,20 +113,24 @@ async function parseSession(
         const content = Array.isArray(r.message?.content) ? r.message.content : [];
         for (const block of content) {
           if (block?.type !== "tool_result") continue;
+          // `is_error` is optional in Claude Code records and only ever written
+          // on failures (denials and interrupts included). A result block that
+          // arrives without it is a completed, successful call — most blocks
+          // carry no other structured outcome for toolOutcome to read.
+          const outcome = toolOutcome(block);
+          const text =
+            typeof block.content === "string"
+              ? block.content
+              : Array.isArray(block.content)
+                ? block.content
+                    .map((entry: any) => (typeof entry?.text === "string" ? entry.text : ""))
+                    .join("\n")
+                : null;
           workflow.toolResult(
-            toolOutcome(block),
+            outcome === "unknown" && block.is_error !== true ? "success" : outcome,
             typeof block.tool_use_id === "string" ? block.tool_use_id : null,
-          );
-        }
-        if (r.toolUseResult !== undefined) {
-          const result = r.toolUseResult;
-          workflow.toolResult(
-            toolOutcome(result),
-            typeof result?.toolUseId === "string"
-              ? result.toolUseId
-              : typeof result?.tool_use_id === "string"
-                ? result.tool_use_id
-                : null,
+            null,
+            text,
           );
         }
         if (typeof r.permissionMode === "string") permissionModes.add(r.permissionMode);

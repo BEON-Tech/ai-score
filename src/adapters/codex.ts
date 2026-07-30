@@ -14,6 +14,34 @@ import {
   usageBucket,
 } from "../util.js";
 import { toolOutcome, WorkflowTracker } from "../workflow.js";
+import type { ToolOutcome } from "../workflow.js";
+
+/** Flattens codex's string-or-text-block output for transient inspection. */
+export function codexText(output: unknown): string {
+  return Array.isArray(output)
+    ? output.map((entry: any) => (typeof entry?.text === "string" ? entry.text : "")).join("\n")
+    : typeof output === "string"
+      ? output
+      : "";
+}
+
+/**
+ * Codex wraps exec output in prose rather than a structured status: the first
+ * line reads "Script completed", "Script failed", "aborted by user…", or
+ * "Script running with cell ID…" for a call that is still detached. Only the
+ * wrapper's own verdict is read; the command output below it is never kept.
+ */
+export function codexOutcome(output: unknown): ToolOutcome {
+  const structured = toolOutcome(output);
+  if (structured !== "unknown") return structured;
+  const first = codexText(output).trimStart().slice(0, 200);
+  if (/^Script completed\b/.test(first)) return "success";
+  if (/^(?:Script failed|exec_command failed|apply_patch verification failed)\b/.test(first)) {
+    return "failure";
+  }
+  if (/^aborted by user\b/.test(first)) return "not-run";
+  return "unknown";
+}
 
 async function parseSession(
   file: string,
@@ -112,8 +140,10 @@ async function parseSession(
           case "function_call_output":
           case "custom_tool_call_output":
             workflow.toolResult(
-              toolOutcome(p.output ?? p.result ?? p),
+              codexOutcome(p.output ?? p.result ?? p),
               typeof p.call_id === "string" ? p.call_id : typeof p.id === "string" ? p.id : null,
+              null,
+              codexText(p.output ?? p.result),
             );
             break;
         }

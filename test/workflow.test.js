@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { codexOutcome } from "../dist/adapters/codex.js";
 import { toolOutcome, WorkflowTracker } from "../dist/workflow.js";
 
 const tracker = () =>
@@ -81,15 +82,33 @@ describe("workflow evidence", () => {
     assert.equal(t.finish().finalVerification, "failed");
   });
 
-  it("marks overlapping relevant tool calls as unorderable", () => {
+  it("orders overlapping tool calls by completion, not by call", () => {
     const t = tracker();
     t.humanTurn();
     t.toolCall("Edit", {}, "edit");
     t.toolCall("Bash", { command: "pnpm test" }, "test");
     t.toolResult("success", "test");
     t.toolResult("success", "edit");
-    assert.equal(t.finish().finalVerification, "unknown");
-    assert.equal(t.finish().sequenceKnown, false);
+    // The edit finished after the check, so the check proves nothing.
+    assert.equal(t.finish().finalVerification, "not-run");
+    assert.equal(t.finish().sequenceKnown, true);
+  });
+
+  it("keeps parallel calls in one turn observable when results resolve in order", () => {
+    const t = tracker();
+    t.humanTurn();
+    // One assistant message with two tool_use blocks: both calls precede both
+    // results in the log. This must not read as an unorderable sequence.
+    t.toolCall("Read", {}, "read");
+    t.toolCall("Edit", {}, "edit");
+    t.toolResult("success", "read");
+    t.toolResult("success", "edit");
+    t.toolCall("Bash", { command: "pnpm test" }, "test");
+    t.toolResult("success", "test");
+    const evidence = t.finish();
+    assert.equal(evidence.sequenceKnown, true);
+    assert.equal(evidence.finalVerification, "passed");
+    assert.equal(evidence.autonomousVerifiedChange, true);
   });
 
   it("does not verify a mutation whose result is still pending", () => {
@@ -116,8 +135,105 @@ describe("workflow evidence", () => {
     t.toolCall("Edit", {}, "edit", "success");
     t.toolCall("Bash", { command: "echo pnpm test" }, "echo", "success");
     const evidence = t.finish();
-    assert.equal(evidence.finalVerification, "unknown");
+    // `echo` is a harmless observation, so the session stays observable — but
+    // the printed command must never register as a verification.
+    assert.equal(evidence.finalVerification, "not-run");
     assert.deepEqual(evidence.verificationKinds, []);
+  });
+
+  it("classifies && chains by their strongest classifiable segment", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "cd app && pnpm build && pnpm test" }, "chain", "success");
+    const evidence = t.finish();
+    // An && chain only reaches its last command when everything before it
+    // succeeded, so the chain reports as its final verification segment.
+    assert.equal(evidence.finalVerification, "passed");
+    assert.deepEqual(evidence.verificationKinds, ["test"]);
+  });
+
+  it("keeps && chains with an opaque segment unclassified", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm test && ./deploy.sh" }, "chain", "success");
+    assert.equal(t.finish().finalVerification, "unknown");
+  });
+
+  it("reads a piped check's verdict from the runner summary, not the pipe's exit", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm test 2>&1 | tail -8" }, "test");
+    // tail exits 0 even when the tests failed; only the summary line counts.
+    t.toolResult("success", "test", null, "...\n Tests  2 failed | 7 passed (9)\n...");
+    assert.equal(t.finish().finalVerification, "failed");
+  });
+
+  it("treats marker-free wrapper output through tail as a pass", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm typecheck 2>&1 | tail -5" }, "check");
+    t.toolResult("success", "check", null, "> ai-score@0.1.7 typecheck\n> tsc\n");
+    assert.equal(t.finish().finalVerification, "passed");
+  });
+
+  it("does not trust marker-free output when head may have cut the marker", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm typecheck 2>&1 | head -5" }, "check");
+    t.toolResult("success", "check", null, "> ai-score@0.1.7 typecheck\n> tsc\n");
+    assert.equal(t.finish().finalVerification, "unknown");
+  });
+
+  it("classifies heredoc commit chains despite quoted newlines and pipes", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
+    t.toolCall(
+      "Bash",
+      {
+        command:
+          "git add -A && git commit -m \"$(cat <<'EOF'\nfeat: a | b; c\nEOF\n)\" && git push",
+      },
+      "ship",
+      "success",
+    );
+    const evidence = t.finish();
+    assert.equal(evidence.finalVerification, "passed");
+    assert.equal(evidence.delivery, "observed");
+  });
+
+  it("keeps remote API tools out of the code-change boundary", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
+    t.toolCall("mcp__plugin_vercel__get_runtime_logs", {}, "logs", "success");
+    t.toolCall("Bash", { command: "gh api repos/o/r/pulls -f title=x" }, "api", "success");
+    assert.equal(t.finish().finalVerification, "passed");
+  });
+
+  it("still treats filesystem MCP tools as potential edits", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
+    t.toolCall("mcp__filesystem__write_file", {}, "fs", "success");
+    assert.equal(t.finish().finalVerification, "unknown");
+  });
+
+  it("keeps redirected observation commands unclassified", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
+    t.toolCall("Bash", { command: "echo done > src/marker.ts" }, "redir", "success");
+    assert.equal(t.finish().finalVerification, "unknown");
   });
 
   it("does not count help or dry-run invocations as evidence", () => {
@@ -203,6 +319,16 @@ describe("workflow evidence", () => {
     );
     assert.equal(toolOutcome("Process exited with code 0"), "success");
     assert.equal(toolOutcome("Process exited with code 2"), "failure");
+  });
+
+  it("reads codex's prose exec wrapper without keeping the output", () => {
+    assert.equal(codexOutcome("Script completed\nWall time: 1.2 seconds\n..."), "success");
+    assert.equal(codexOutcome([{ type: "input_text", text: "Script failed\n..." }]), "failure");
+    assert.equal(codexOutcome("exec_command failed for `/bin/zsh -lc 'x'`"), "failure");
+    assert.equal(codexOutcome("aborted by user after 3.1s"), "not-run");
+    assert.equal(codexOutcome("Script running with cell ID 4"), "unknown");
+    // Structured statuses still win over the prose wrapper.
+    assert.equal(codexOutcome('{"exit_code":1}'), "failure");
   });
 
   it("never retains command text in the wire-safe result", () => {
