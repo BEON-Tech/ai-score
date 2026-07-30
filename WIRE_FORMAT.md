@@ -15,6 +15,10 @@ body, with nothing on the server able to verify it. v2 sends an access token
 instead and the server resolves identity from it, so the client no longer
 claims to be anyone. See [Request headers](#request-headers).
 
+`workflow` was later added as an optional, backward-compatible session field.
+The CLI derives it locally from ordered tool calls and structured result
+statuses. Older v2 payloads without it remain valid.
+
 ## Request headers
 
 The payload is not the only thing on the wire, so for completeness:
@@ -49,19 +53,21 @@ The payload **never** contains:
 
 The payload **does** contain: tool names, model ids, token counts, cost totals
 where the harness records them, timestamps, mode/policy enum values, harness
-version strings, and one-way hashes.
+version strings, one-way hashes, and derived workflow enums. To derive those
+enums the CLI transiently inspects tool arguments and result statuses in local
+harness records; raw values are immediately discarded and never serialized.
 
 ## Top level
 
-| Field                | Type                   | Meaning                                        |
-| -------------------- | ---------------------- | ---------------------------------------------- |
-| `schema`             | `"beon.ai-score.v2"`   | format version; bump on breaking change        |
-| `client`             | `{ name, version }`    | this CLI's package name and version            |
-| `generatedAt`        | ISO 8601               | when extraction ran                            |
-| `window`             | `{ days, start, end }` | look-back window that was scanned              |
-| `engineer.machineId` | string                 | `sha256(hostname:username)` first 16 hex chars |
-| `platform`           | `{ os, arch, node }`   | e.g. `darwin`, `arm64`, `24.1.0`               |
-| `harnesses`          | `HarnessReport[]`      | one entry per supported harness                |
+| Field                | Type                   | Meaning                                              |
+| -------------------- | ---------------------- | ---------------------------------------------------- |
+| `schema`             | `"beon.ai-score.v2"`   | format version; bump on breaking change              |
+| `client`             | object                 | CLI name/version plus `workflowClassifierVersion: 1` |
+| `generatedAt`        | ISO 8601               | when extraction ran                                  |
+| `window`             | `{ days, start, end }` | look-back window that was scanned                    |
+| `engineer.machineId` | string                 | `sha256(hostname:username)` first 16 hex chars       |
+| `platform`           | `{ os, arch, node }`   | e.g. `darwin`, `arm64`, `24.1.0`                     |
+| `harnesses`          | `HarnessReport[]`      | one entry per supported harness                      |
 
 ## `HarnessReport`
 
@@ -101,6 +107,28 @@ version strings, and one-way hashes.
 | `outcome.prLinks`                                  | number                      | PRs the harness linked to the session (count only)                                                 |
 | `outcome.filesChanged` / `additions` / `deletions` | number \| null              | OpenCode session diff summary (counts only)                                                        |
 | `outcome.distinctGitBranches`                      | number \| null              | how many branches the session touched (names are not sent)                                         |
+| `workflow`                                         | object                      | optional privacy-safe edit/check evidence derived locally; see below                               |
+
+### `workflow`
+
+Present in reports produced by clients with workflow classification support:
+
+| Field                      | Type                                           | Meaning                                                                 |
+| -------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
+| `classifierVersion`        | `1`                                            | local classifier contract version                                       |
+| `codeChange`               | `success` \| `failure` \| `none` \| `unknown`  | whether a code-mutating tool produced an observable change              |
+| `sequenceKnown`            | boolean                                        | whether native records preserved reliable event order                   |
+| `finalVerification`        | `passed` \| `failed` \| `not-run` \| `unknown` | state of checks after the final successful code change                  |
+| `autonomousVerifiedChange` | boolean \| null                                | whether final change and passing check occurred in one human turn       |
+| `recoveredFromFailure`     | boolean \| null                                | whether a failed check was followed by another change and passing check |
+| `delivery`                 | `observed` \| `not-observed` \| `unknown`      | successful commit/PR evidence visible inside the harness                |
+| `verificationKinds`        | (`test` \| `typecheck` \| `build` \| `lint`)[] | categories observed, never command text                                 |
+
+`unknown` is materially different from a negative result. It means the native
+harness did not expose enough ordering, arguments, or structured outcome data
+to make the claim. The server must not label it as an observed failure or drop
+it from consideration. It remains visible in evidence coverage and the
+coding-session denominator.
 
 ### `TokenUsage`
 

@@ -1,9 +1,9 @@
 # @beon-tech/ai-score
 
 CLI that measures how an engineer uses AI coding tools. It scans the session
-data that coding harnesses already keep on your machine, normalizes it into
-structural metadata, and submits it to Beon's scoring service, where the score
-is computed server-side.
+data that coding harnesses already keep on your machine, derives privacy-safe
+edit/check evidence, and submits it to Beon's scoring service. The server
+returns a Verified Workflow score plus a separate Usage Profile.
 
 ```sh
 npx @beon-tech/ai-score              # sign in if needed, scan, summarize, confirm, upload
@@ -67,12 +67,13 @@ AI_SCORE_TOKEN=… npx @beon-tech/ai-score --yes
 
 ## Privacy model
 
-All processing happens on-device. What leaves your machine is structural
-metadata only: tool names, model ids, token/cost counts, timestamps, enum
-flags, and one-way hashes of session/project identifiers. **No code, prompts,
-message text, file paths, branch names, or tool arguments — ever.** The full
-field-by-field contract is in [WIRE_FORMAT.md](./WIRE_FORMAT.md); anything not
-listed there is not collected.
+All classification happens on-device. The CLI transiently inspects tool
+arguments and structured result statuses to recognize edits, tests, typechecks,
+builds, lint runs and delivery events, then immediately discards the raw values.
+What leaves your machine is structural metadata and derived enums only. **No
+code, prompts, message text, file paths, branch names, raw commands, arguments,
+or tool outputs are uploaded.** The full field-by-field contract is in
+[WIRE_FORMAT.md](./WIRE_FORMAT.md).
 
 Two things leave your machine besides the payload, both only when you sign in:
 the device-flow exchange with `ai-score.beon.tech`, and the access token
@@ -128,6 +129,7 @@ src/
   cli.ts             argument parsing, commands, orchestration, consent
   config.ts          resolves which server to talk to
   types.ts           the beon.ai-score.v2 wire format
+  workflow.ts        local command classification and workflow reduction
   adapters/
     claude-code.ts   one adapter per harness — each translates its native
     codex.ts         on-disk format into the common SessionRecord shape
@@ -146,10 +148,10 @@ src/
 
 Design rules:
 
-- **The client is dumb on purpose.** It extracts and normalizes; all scoring,
-  weighting, and cross-harness calibration live server-side. The algorithm can
-  change without engineers re-running anything, and historical submissions can
-  be re-scored.
+- **The client derives evidence but never scores it.** It classifies native
+  records into fixed workflow enums; all weighting and eligibility remain
+  server-side. A classifier change requires engineers to rescan local history,
+  while a score-weight change remains fully server-side.
 - **Adapters are defensive.** Harness log formats are undocumented internals
   that change between versions. Unparseable records are skipped and counted
   (`parseErrors`), never fatal.
@@ -165,8 +167,9 @@ Design rules:
 
 Implement the `Adapter` interface in `src/adapters/<name>.ts`, register it in
 `src/adapters/index.ts`, add the `HarnessName` union member in `types.ts`, and
-document any new `flags` in `WIRE_FORMAT.md`. Only emit names, counts,
-timestamps, enums, and hashes — never free text from the logs.
+document any new fields in `WIRE_FORMAT.md`. Raw text may only be inspected
+transiently by a local classifier; only names, counts, timestamps, enums and
+hashes may enter `SessionRecord`.
 
 ### Adding a sign-in provider
 
@@ -182,8 +185,9 @@ The CLI POSTs the payload as JSON to `<server>/api/v1/submissions` with an
 403 means the token is dead: the CLI drops it and tells the engineer to log in
 again. The ingest endpoint validates `schema === "beon.ai-score.v2"`, resolves
 the submitter from the token (**never** from the payload), stores the raw
-submission, and computes scores asynchronously so the algorithm can evolve
-independently of the client.
+submission, and computes both results server-side so their weights can evolve
+independently of the client. The response keeps `score` as the Usage Profile for
+older clients and adds `verifiedWorkflow` for current clients.
 
 Auth endpoints used, all under `<server>/api/auth`:
 `POST /device/code`, `POST /device/token`, `GET /get-session`.

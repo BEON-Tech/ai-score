@@ -139,5 +139,15 @@ export function newSessionRecord(id: string, projectId: string): SessionRecord {
       deletions: null,
       distinctGitBranches: null,
     },
+    workflow: {
+      classifierVersion: 1,
+      codeChange: "none",
+      sequenceKnown: false,
+      finalVerification: "unknown",
+      autonomousVerifiedChange: null,
+      recoveredFromFailure: null,
+      delivery: "unknown",
+      verificationKinds: [],
+    },
   };
 }

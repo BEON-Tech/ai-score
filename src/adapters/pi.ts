@@ -12,6 +12,7 @@ import {
   toMs,
   usageBucket,
 } from "../util.js";
+import { toolOutcome, WorkflowTracker } from "../workflow.js";
 
 async function parseSession(
   file: string,
@@ -26,6 +27,11 @@ async function parseSession(
   let lastTs: number | null = null;
   let turnStart: number | null = null;
   let turnTools = 0;
+  const workflow = new WorkflowTracker({
+    sequenceKnown: true,
+    commandObservation: true,
+    deliveryObservation: true,
+  });
 
   const closeTurn = (endTs: number | null) => {
     if (turnStart === null) return;
@@ -40,11 +46,13 @@ async function parseSession(
   for await (const parsed of jsonlRecords(file)) {
     if (!parsed.ok) {
       report.parseErrors++;
+      workflow.uncertainSequence();
       continue;
     }
     const r: any = parsed.value;
     if (!r || typeof r !== "object") {
       report.parseErrors++;
+      workflow.uncertainSequence();
       continue;
     }
     const ts = toMs(r.timestamp);
@@ -66,6 +74,7 @@ async function parseSession(
         closeTurn(ts);
         s.counts.userPrompts++;
         s.agentic.turns++;
+        workflow.humanTurn();
         turnStart = ts;
         break;
       case "assistant": {
@@ -87,12 +96,26 @@ async function parseSession(
           if (block?.type !== "toolCall" || typeof block.name !== "string") continue;
           s.counts.toolCalls++;
           s.tools[block.name] = (s.tools[block.name] ?? 0) + 1;
+          workflow.toolCall(
+            block.name,
+            block.arguments ?? block.input,
+            typeof block.id === "string"
+              ? block.id
+              : typeof block.toolCallId === "string"
+                ? block.toolCallId
+                : null,
+          );
           turnTools++;
         }
         break;
       }
       case "toolResult":
         if (m.isError === true) s.counts.toolErrors++;
+        workflow.toolResult(
+          toolOutcome(m),
+          typeof m.toolCallId === "string" ? m.toolCallId : typeof m.id === "string" ? m.id : null,
+          typeof m.toolName === "string" ? m.toolName : null,
+        );
         break;
     }
   }
@@ -104,6 +127,7 @@ async function parseSession(
   s.startedAt = toIso(firstTs);
   s.endedAt = toIso(lastTs);
   s.costUsd = hasCost ? cost : null;
+  s.workflow = workflow.finish();
   return s;
 }
 

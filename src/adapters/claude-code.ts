@@ -12,6 +12,7 @@ import {
   toMs,
   usageBucket,
 } from "../util.js";
+import { toolOutcome, WorkflowTracker } from "../workflow.js";
 
 const INTERRUPT_MARKERS = ["[Request interrupted by user", "[Request cancelled by user"];
 
@@ -56,6 +57,11 @@ async function parseSession(
   let mcpCalls = 0;
   let turnStart: number | null = null;
   let turnTools = 0;
+  const workflow = new WorkflowTracker({
+    sequenceKnown: true,
+    commandObservation: true,
+    deliveryObservation: true,
+  });
 
   const closeTurn = (endTs: number | null) => {
     if (turnStart === null) return;
@@ -70,11 +76,13 @@ async function parseSession(
   for await (const parsed of jsonlRecords(file)) {
     if (!parsed.ok) {
       report.parseErrors++;
+      workflow.uncertainSequence();
       continue;
     }
     const r: any = parsed.value;
     if (!r || typeof r !== "object") {
       report.parseErrors++;
+      workflow.uncertainSequence();
       continue;
     }
     const ts = toMs(r.timestamp);
@@ -102,6 +110,25 @@ async function parseSession(
         if (typeof r.subtype === "string" && r.subtype.includes("compact")) compactions++;
         break;
       case "user": {
+        const content = Array.isArray(r.message?.content) ? r.message.content : [];
+        for (const block of content) {
+          if (block?.type !== "tool_result") continue;
+          workflow.toolResult(
+            toolOutcome(block),
+            typeof block.tool_use_id === "string" ? block.tool_use_id : null,
+          );
+        }
+        if (r.toolUseResult !== undefined) {
+          const result = r.toolUseResult;
+          workflow.toolResult(
+            toolOutcome(result),
+            typeof result?.toolUseId === "string"
+              ? result.toolUseId
+              : typeof result?.tool_use_id === "string"
+                ? result.tool_use_id
+                : null,
+          );
+        }
         if (typeof r.permissionMode === "string") permissionModes.add(r.permissionMode);
         if (r.toolDenialKind !== undefined && r.toolDenialKind !== null) s.counts.toolDenials++;
         if (r.isMeta === true || r.isSidechain === true) break;
@@ -116,6 +143,7 @@ async function parseSession(
         closeTurn(ts);
         s.counts.userPrompts++;
         s.agentic.turns++;
+        workflow.humanTurn();
         turnStart = ts;
         break;
       }
@@ -132,6 +160,11 @@ async function parseSession(
           if (block?.type !== "tool_use" || typeof block.name !== "string") continue;
           s.counts.toolCalls++;
           s.tools[block.name] = (s.tools[block.name] ?? 0) + 1;
+          workflow.toolCall(
+            block.name,
+            block.input,
+            typeof block.id === "string" ? block.id : null,
+          );
           if (block.name.startsWith("mcp__")) mcpCalls++;
           if (r.isSidechain !== true) turnTools++;
         }
@@ -165,6 +198,7 @@ async function parseSession(
     slashCommands,
     mcpCalls,
   };
+  s.workflow = workflow.finish();
   return s;
 }
 

@@ -13,6 +13,7 @@ import {
   toIso,
   toMs,
 } from "../util.js";
+import { toolOutcome, WorkflowTracker } from "../workflow.js";
 
 /**
  * `cursor-agent` stores each conversation as a content-addressed blob store:
@@ -94,10 +95,19 @@ export function asMessage(data: Uint8Array): any | null {
  * Folds an ordered message list into a session record. Exported for the tests,
  * which build message arrays directly rather than a SQLite fixture.
  */
-export function foldMessages(messages: any[], s: SessionRecord): { reasoning: number } {
+export function foldMessages(
+  messages: any[],
+  s: SessionRecord,
+  sequenceKnown = true,
+): { reasoning: number } {
   let reasoning = 0;
   let inTurn = false;
   let turnTools = 0;
+  const workflow = new WorkflowTracker({
+    sequenceKnown,
+    commandObservation: true,
+    deliveryObservation: true,
+  });
 
   const closeTurn = () => {
     if (!inTurn) return;
@@ -113,6 +123,7 @@ export function foldMessages(messages: any[], s: SessionRecord): { reasoning: nu
         closeTurn();
         s.counts.userPrompts++;
         s.agentic.turns++;
+        workflow.humanTurn();
         inTurn = true;
         break;
       case "assistant":
@@ -123,14 +134,37 @@ export function foldMessages(messages: any[], s: SessionRecord): { reasoning: nu
           const name = typeof block.toolName === "string" ? block.toolName : "unknown";
           s.counts.toolCalls++;
           s.tools[name] = (s.tools[name] ?? 0) + 1;
+          workflow.toolCall(
+            name,
+            block.input ?? block.args ?? block.arguments,
+            typeof block.toolCallId === "string"
+              ? block.toolCallId
+              : typeof block.id === "string"
+                ? block.id
+                : null,
+          );
           turnTools++;
         }
         break;
-      // `tool` messages mirror the calls already counted above, and the system
-      // prompt is not a turn. Neither adds a count.
+      case "tool":
+        for (const block of content) {
+          if (block?.type !== "tool-result") continue;
+          workflow.toolResult(
+            toolOutcome(block.output ?? block.result ?? block),
+            typeof block.toolCallId === "string"
+              ? block.toolCallId
+              : typeof block.id === "string"
+                ? block.id
+                : null,
+            typeof block.toolName === "string" ? block.toolName : null,
+          );
+        }
+        break;
+      // The system prompt is not a turn.
     }
   }
   closeTurn();
+  s.workflow = workflow.finish();
   return { reasoning };
 }
 
@@ -165,15 +199,20 @@ async function parseSession(
     const ordered = messageOrder(meta.latestRootBlobId ? blobs.get(meta.latestRootBlobId) : null);
     const ids = ordered.length > 0 ? ordered : [...blobs.keys()];
     const messages: any[] = [];
+    let sequenceKnown = ordered.length > 0;
     for (const id of ids) {
       const blob = blobs.get(id);
-      if (!blob) continue;
+      if (!blob) {
+        sequenceKnown = false;
+        continue;
+      }
       const message = asMessage(blob);
       if (message) messages.push(message);
+      else sequenceKnown = false;
     }
 
     const s = newSessionRecord(hash16(meta.agentId ?? file), hash16(project));
-    const { reasoning } = foldMessages(messages, s);
+    const { reasoning } = foldMessages(messages, s, sequenceKnown);
     if (s.counts.userPrompts === 0 && s.counts.assistantMessages === 0) return null;
 
     // Neither timestamps nor token counts survive into the JSON messages, so a

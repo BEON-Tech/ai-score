@@ -1,4 +1,4 @@
-import type { HarnessReport, Payload, Score, TokenUsage } from "./types.js";
+import type { HarnessReport, Payload, Score, TokenUsage, VerifiedWorkflowResult } from "./types.js";
 import {
   bar,
   blockText,
@@ -112,7 +112,7 @@ export function renderHeader(info: HeaderInfo): string {
 
   const beside = [
     `${c.text("ai-score")} ${c.faint(info.version)}`,
-    c.muted("AI leverage report"),
+    c.muted("verified workflow report"),
     "",
   ];
   for (const [i, row] of WORDMARK.entries()) {
@@ -279,8 +279,8 @@ export function renderPrivacy(): string {
     [
       rule(),
       "",
-      `${PAD}${c.faint(label)}   ${c.muted("counts, model ids, timestamps and one-way hashes only.")}`,
-      `${PAD}${indent}   ${c.muted("No code, prompts, file paths or message text.")}`,
+      `${PAD}${c.faint(label)}   ${c.muted("counts, workflow states, timestamps and one-way hashes only.")}`,
+      `${PAD}${indent}   ${c.muted("No raw commands, outputs, code, prompts, paths or message text.")}`,
       `${PAD}${indent}   ${c.faint("--audit prints the exact payload before anything is sent.")}`,
       "",
     ].join("\n") + "\n"
@@ -299,7 +299,7 @@ function band(total: number, max: number): { label: string; tone: Paint } {
 }
 
 /** What each dimension actually measures, in the engineer's terms. */
-const DIMENSION_COPY: Record<string, string> = {
+const USAGE_DIMENSION_COPY: Record<string, string> = {
   leverage: "how much work per prompt",
   craft: "clean runs, few retries",
   output: "shipped, not just chatted",
@@ -307,12 +307,24 @@ const DIMENSION_COPY: Record<string, string> = {
   efficiency: "cache reuse, multi-harness",
 };
 
+const WORKFLOW_DIMENSION_COPY: Record<string, string> = {
+  verification: "checks after code changes",
+  completion: "final check passed",
+  autonomy: "changed and checked in one turn",
+};
+
 /**
  * Replaces what used to be `body.slice(0, 200)` of the raw JSON response — the
  * server already returns a per-dimension breakdown, so there is no reason to
  * show it as a truncated object.
  */
-export function renderScore(score: Score, submissionId: string | null): string {
+function renderScoreCard(
+  score: Score,
+  submissionId: string | null,
+  title: string,
+  copy: Record<string, string>,
+  notes: string[] = [],
+): string {
   const entries = Object.entries(score.dimensions);
   const outOf = entries.reduce((sum, [, d]) => sum + d.max, 0);
   const { label, tone } = band(score.total, outOf);
@@ -322,7 +334,7 @@ export function renderScore(score: Score, submissionId: string | null): string {
 
   // The figure and its meaning sit side by side: one glance, not two.
   const beside = [
-    c.faint(track("ai score")),
+    c.faint(track(title)),
     `${c.bold(tone(formatScore(score.total)))} ${c.faint(`of ${outOf || 100}`)}   ${tone(label)}`,
     score.version > 0 ? c.faint(`scoring v${score.version}`) : "",
   ];
@@ -333,7 +345,7 @@ export function renderScore(score: Score, submissionId: string | null): string {
   if (entries.length > 0) {
     out.push("");
     const nameWidth = Math.max(...entries.map(([name]) => name.length));
-    const copyWidth = Math.max(...entries.map(([name]) => (DIMENSION_COPY[name] ?? "").length));
+    const copyWidth = Math.max(...entries.map(([name]) => (copy[name] ?? "").length));
     const figureWidth = Math.max(
       ...entries.map(([, d]) => `${formatScore(d.score)}/${d.max}`.length),
     );
@@ -350,12 +362,17 @@ export function renderScore(score: Score, submissionId: string | null): string {
       out.push(
         PAD +
           padEnd(c.text(name), nameWidth + 2) +
-          padEnd(c.faint(DIMENSION_COPY[name] ?? ""), copyWidth + 3) +
+          padEnd(c.faint(copy[name] ?? ""), copyWidth + 3) +
           padStart(figure, figureWidth + 1) +
           "  " +
           tint(bar(d.score, d.max, meterWidth)),
       );
     }
+  }
+
+  if (notes.length > 0) {
+    out.push("");
+    for (const note of notes) out.push(`${PAD}${c.faint("⌐")} ${c.muted(note)}`);
   }
 
   if (submissionId) {
@@ -364,6 +381,64 @@ export function renderScore(score: Score, submissionId: string | null): string {
     // a headline. Plain text, not a link — the server has no submission-view
     // route yet, and printing a URL that 404s is worse than printing none.
     out.push(`${PAD}${c.faint("⌐")} ${c.muted(`submission ${submissionId}`)}`);
+  }
+  out.push("");
+  return out.join("\n") + "\n";
+}
+
+export function renderScore(
+  score: Score,
+  submissionId: string | null,
+  verifiedWorkflowAvailable = false,
+): string {
+  return renderScoreCard(
+    score,
+    submissionId,
+    "usage profile",
+    USAGE_DIMENSION_COPY,
+    verifiedWorkflowAvailable ? ["diagnostic only — Verified Workflow determines rank"] : [],
+  );
+}
+
+const WORKFLOW_REASON_COPY: Record<string, string> = {
+  NO_CODING_SESSIONS: "no observable coding sessions in this run",
+  MISSING_WORKFLOW_EVIDENCE: "some sessions need the latest supported classifier",
+  MIN_OBSERVABLE_SESSIONS: "at least 5 observable coding sessions are required",
+  LOW_OBSERVABILITY: "at least 70% of coding sessions must carry reliable evidence",
+};
+
+export function renderVerifiedWorkflow(result: VerifiedWorkflowResult): string {
+  const evidence = result.evidence;
+  const evidenceSessions = evidence.codingSessions + evidence.unclassifiedSessions;
+  const coverage = `${(evidence.coverage * 100).toFixed(1)}% coverage`;
+  if (result.status === "scored") {
+    return renderScoreCard(
+      {
+        total: result.total,
+        version: result.scoringVersion,
+        dimensions: result.dimensions,
+      },
+      null,
+      "verified workflow",
+      WORKFLOW_DIMENSION_COPY,
+      [
+        `${evidence.observableSessions} observable / ${evidenceSessions} evidence candidates · ${coverage}`,
+        `${evidence.codingSessions} coding · ${evidence.unclassifiedSessions} unclassified`,
+        `${evidence.recoveredFailures} failures recovered · ${evidence.deliveriesObserved} deliveries observed`,
+      ],
+    );
+  }
+
+  const out = [
+    rule(),
+    "",
+    `${PAD}${c.faint(track("verified workflow"))}   ${c.warn("not scored")}`,
+  ];
+  out.push(
+    `${PAD}${c.muted(`${evidence.observableSessions} observable / ${evidenceSessions} evidence candidates · ${coverage}`)}`,
+  );
+  for (const reason of result.reasonCodes) {
+    out.push(`${PAD}${c.faint("⌐")} ${c.muted(WORKFLOW_REASON_COPY[reason] ?? reason)}`);
   }
   out.push("");
   return out.join("\n") + "\n";

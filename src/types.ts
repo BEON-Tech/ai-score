@@ -38,6 +38,23 @@ export interface SessionOutcome {
   distinctGitBranches: number | null;
 }
 
+export type WorkflowCodeChange = "success" | "failure" | "none" | "unknown";
+export type WorkflowVerification = "passed" | "failed" | "not-run" | "unknown";
+export type WorkflowDelivery = "observed" | "not-observed" | "unknown";
+export type VerificationKind = "test" | "typecheck" | "build" | "lint";
+
+/** Privacy-safe evidence derived locally from ordered tool calls and results. */
+export interface WorkflowEvidence {
+  classifierVersion: 1;
+  codeChange: WorkflowCodeChange;
+  sequenceKnown: boolean;
+  finalVerification: WorkflowVerification;
+  autonomousVerifiedChange: boolean | null;
+  recoveredFromFailure: boolean | null;
+  delivery: WorkflowDelivery;
+  verificationKinds: VerificationKind[];
+}
+
 export interface SessionRecord {
   id: string;
   projectId: string;
@@ -51,6 +68,7 @@ export interface SessionRecord {
   flags: Record<string, number | boolean | string[]>;
   agentic: SessionAgentic;
   outcome: SessionOutcome;
+  workflow: WorkflowEvidence;
 }
 
 export interface HarnessReport {
@@ -67,7 +85,7 @@ export interface HarnessReport {
 
 export interface Payload {
   schema: "beon.ai-score.v2";
-  client: { name: string; version: string };
+  client: { name: string; version: string; workflowClassifierVersion: 1 };
   generatedAt: string;
   window: { days: number; start: string; end: string };
   /**
@@ -98,10 +116,38 @@ export interface Score {
   dimensions: Record<string, DimensionScore>;
 }
 
+export interface WorkflowEvidenceSummary {
+  codingSessions: number;
+  unclassifiedSessions: number;
+  observableSessions: number;
+  coverage: number;
+  checksAttempted: number;
+  verifiedCompletions: number;
+  autonomousCompletions: number;
+  recoveredFailures: number;
+  deliveriesObserved: number;
+}
+
+export type VerifiedWorkflowResult =
+  | {
+      status: "scored";
+      scoringVersion: number;
+      total: number;
+      dimensions: Record<string, DimensionScore>;
+      evidence: WorkflowEvidenceSummary;
+    }
+  | {
+      status: "insufficient_evidence";
+      scoringVersion: number;
+      reasonCodes: string[];
+      evidence: WorkflowEvidenceSummary;
+    };
+
 /** Parsed upload response. Both fields are null when the shape is unfamiliar. */
 export interface SubmissionResult {
   id: string | null;
   score: Score | null;
+  verifiedWorkflow: VerifiedWorkflowResult | null;
 }
 
 export interface CollectContext {
