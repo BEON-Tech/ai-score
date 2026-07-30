@@ -404,7 +404,7 @@ const WORKFLOW_REASON_COPY: Record<string, string> = {
   NO_CODING_SESSIONS: "no observable coding sessions in this run",
   MISSING_WORKFLOW_EVIDENCE: "some sessions need the latest supported classifier",
   MIN_OBSERVABLE_SESSIONS: "at least 5 observable coding sessions are required",
-  LOW_OBSERVABILITY: "at least 70% of coding sessions must carry reliable evidence",
+  LOW_OBSERVABILITY: "at least 30% of coding sessions must carry reliable evidence",
 };
 
 export function renderVerifiedWorkflow(result: VerifiedWorkflowResult): string {
