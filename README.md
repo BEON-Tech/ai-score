@@ -68,8 +68,10 @@ AI_SCORE_TOKEN=… npx @beon-tech/ai-score --yes
 ## Privacy model
 
 All classification happens on-device. The CLI transiently inspects tool
-arguments and structured result statuses to recognize edits, tests, typechecks,
-builds, lint runs and delivery events, then immediately discards the raw values.
+arguments, structured result statuses, and recorded check output (only to read
+a test runner's own pass/fail summary when a pipe hid the exit code) to
+recognize edits, tests, typechecks, builds, lint runs and delivery events,
+then immediately discards the raw values.
 What leaves your machine is structural metadata and derived enums only. **No
 code, prompts, message text, file paths, branch names, raw commands, arguments,
 or tool outputs are uploaded.** The full field-by-field contract is in

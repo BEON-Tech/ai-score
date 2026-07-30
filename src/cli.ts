@@ -45,9 +45,10 @@ Usage
 
 Scans local session data from Claude Code, Codex, Cursor, OpenCode and pi,
 normalizes it into structural metadata and locally derived workflow states.
-Tool arguments and result statuses are inspected only long enough to classify
-edits and checks; their raw values, code, prompts, paths and message text are
-never sent. Submissions are attributed to the account you sign in as.
+Tool arguments, result statuses and check output are inspected only long
+enough to classify edits and checks; their raw values, code, prompts, paths
+and message text are never sent. Submissions are attributed to the account
+you sign in as.
 
 Options
   --days <n>          look-back window in days (default: 30)

@@ -54,8 +54,10 @@ The payload **never** contains:
 The payload **does** contain: tool names, model ids, token counts, cost totals
 where the harness records them, timestamps, mode/policy enum values, harness
 version strings, one-way hashes, and derived workflow enums. To derive those
-enums the CLI transiently inspects tool arguments and result statuses in local
-harness records; raw values are immediately discarded and never serialized.
+enums the CLI transiently inspects tool arguments, result statuses, and — for
+checks piped through filters like `tail`, where the exit code proves nothing —
+the runner's own pass/fail summary line in the recorded output. Raw values are
+immediately discarded and never serialized.
 
 ## Top level
 
