@@ -51,7 +51,7 @@ and message text are never sent. Submissions are attributed to the account
 you sign in as.
 
 Options
-  --days <n>          look-back window in days (default: 30)
+  --days <n>          look-back window in days (default: 180)
   --harness <names>   comma-separated subset: claude-code,codex,cursor-cli,
                       cursor-ide,opencode,pi
   --url <url>         ai-score server (default: $AI_SCORE_URL or
@@ -88,7 +88,10 @@ async function main(): Promise<void> {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {
-      days: { type: "string", default: "30" },
+      // Six months: wide enough that a default run captures the history
+      // needed for eligibility (5 observable sessions, 30% coverage) and
+      // re-covers sessions a narrower window scored under an old classifier.
+      days: { type: "string", default: "180" },
       harness: { type: "string", multiple: true },
       url: { type: "string" },
       endpoint: { type: "string" },
