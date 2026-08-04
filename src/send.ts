@@ -148,6 +148,12 @@ export async function send(
   if (res.status === 401 || res.status === 403) {
     throw new UnauthorizedError(`upload rejected: HTTP ${res.status} ${body.slice(0, 300)}`);
   }
+  if (res.status === 413) {
+    throw new Error(
+      "upload rejected: the report is larger than the server accepts (HTTP 413). " +
+        "Retry with a narrower window, e.g. --days 90.",
+    );
+  }
   if (!res.ok) {
     throw new Error(`upload failed: HTTP ${res.status} ${body.slice(0, 300)}`);
   }
