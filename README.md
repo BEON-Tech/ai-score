@@ -104,7 +104,7 @@ whoami              print the account this machine submits as
 ```
 
 ```
---days <n>          look-back window in days (default: 30)
+--days <n>          look-back window in days (default: 180)
 --harness <names>   comma-separated subset: claude-code,codex,cursor-cli,
                     cursor-ide,opencode,pi
 --url <url>         ai-score server (default: $AI_SCORE_URL or
