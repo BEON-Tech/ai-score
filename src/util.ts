@@ -140,7 +140,7 @@ export function newSessionRecord(id: string, projectId: string): SessionRecord {
       distinctGitBranches: null,
     },
     workflow: {
-      classifierVersion: 1,
+      classifierVersion: 2,
       codeChange: "none",
       sequenceKnown: false,
       finalVerification: "unknown",

@@ -64,7 +64,7 @@ immediately discarded and never serialized.
 | Field                | Type                   | Meaning                                              |
 | -------------------- | ---------------------- | ---------------------------------------------------- |
 | `schema`             | `"beon.ai-score.v2"`   | format version; bump on breaking change              |
-| `client`             | object                 | CLI name/version plus `workflowClassifierVersion: 1` |
+| `client`             | object                 | CLI name/version plus `workflowClassifierVersion: 2` |
 | `generatedAt`        | ISO 8601               | when extraction ran                                  |
 | `window`             | `{ days, start, end }` | look-back window that was scanned                    |
 | `engineer.machineId` | string                 | `sha256(hostname:username)` first 16 hex chars       |
@@ -117,7 +117,7 @@ Present in reports produced by clients with workflow classification support:
 
 | Field                      | Type                                           | Meaning                                                                 |
 | -------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
-| `classifierVersion`        | `1`                                            | local classifier contract version                                       |
+| `classifierVersion`        | `2`                                            | local classifier contract version                                       |
 | `codeChange`               | `success` \| `failure` \| `none` \| `unknown`  | whether a code-mutating tool produced an observable change              |
 | `sequenceKnown`            | boolean                                        | whether native records preserved reliable event order                   |
 | `finalVerification`        | `passed` \| `failed` \| `not-run` \| `unknown` | state of checks after the final successful code change                  |
@@ -131,6 +131,23 @@ harness did not expose enough ordering, arguments, or structured outcome data
 to make the claim. The server must not label it as an observed failure or drop
 it from consideration. It remains visible in evidence coverage and the
 coding-session denominator.
+
+Classifier v2 changes, all three aimed at patterns v1 misread as opaque or
+mutating:
+
+- Writes to **agent-state paths** — dot-directories under the home directory
+  (`~/.claude/…` memory notes, harness config) and OS temp directories
+  (scratchpads) — are observations, not code changes, unless the path sits
+  inside the session's own working directory. v1 counted them as mutations,
+  which turned note-taking sessions into "unverified coding sessions" and let
+  an end-of-session memory note invalidate checks that had already passed.
+- **Heredoc bodies** are stdin data, not commands: quoted-delimiter heredocs
+  (`git commit -F - <<'EOF'`) and expansion-free unquoted ones no longer make
+  the whole command opaque.
+- **Verify-and-ship chains** (`checks && git commit && git push`) record the
+  checks as verification evidence alongside the delivery instead of
+  discarding them; the checks are certified only when provable (exit-gated by
+  `&&`, or failure-marked with the stream end preserved).
 
 ### `TokenUsage`
 

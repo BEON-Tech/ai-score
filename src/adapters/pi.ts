@@ -63,7 +63,10 @@ async function parseSession(
 
     if (r.type === "session") {
       if (typeof r.id === "string") s.id = hash16(r.id);
-      if (typeof r.cwd === "string") s.projectId = hash16(r.cwd);
+      if (typeof r.cwd === "string") {
+        s.projectId = hash16(r.cwd);
+        workflow.projectDir(r.cwd);
+      }
       if (typeof r.version === "string") report.latestVersion = r.version;
       continue;
     }

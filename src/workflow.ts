@@ -1,3 +1,4 @@
+import { homedir, tmpdir } from "node:os";
 import type {
   VerificationKind,
   WorkflowCodeChange,
@@ -36,6 +37,10 @@ interface WorkflowEvent {
    * as if they may have finished after everything else.
    */
   settled?: boolean;
+  /** Verification evidence carried inside a delivery chain; settles with it. */
+  companion?: WorkflowEvent;
+  /** Excluded from name-based result matching — its carrier settles it. */
+  isCompanion?: boolean;
 }
 
 interface Classified {
@@ -49,6 +54,12 @@ interface Classified {
    * provided nothing after it in the pipe truncated the end of the stream.
    */
   failureMarked?: boolean;
+  /**
+   * A `checks && git commit && git push` chain classifies as delivery, but
+   * the checks inside it are the session's verification evidence. This
+   * carries them as a second event instead of discarding them.
+   */
+  chainedVerification?: Classified;
 }
 
 interface TrackerOptions {
@@ -110,6 +121,63 @@ const OBSERVATION_TOOLS = new Set([
 
 const normalizeTool = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "_");
 
+const normalizePath = (path: string) => path.replace(/\\/g, "/").replace(/\/+$/, "");
+
+const MUTATION_PATH_KEYS = [
+  "file_path",
+  "filePath",
+  "path",
+  "notebook_path",
+  "notebookPath",
+  "target_file",
+  "targetFile",
+];
+
+/** Target paths of a mutation tool call, or [] when the input names none. */
+function mutationTargets(input: unknown): string[] {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return [];
+  const record = input as Record<string, unknown>;
+  const targets: string[] = [];
+  for (const key of MUTATION_PATH_KEYS) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) targets.push(value.trim());
+  }
+  if (targets.length === 0) {
+    // codex's apply_patch carries its paths inside the patch text.
+    const patch = [record["input"], record["patch"], record["content"]].find(
+      (value) => typeof value === "string",
+    ) as string | undefined;
+    for (const match of patch?.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm) ?? []) {
+      targets.push(match[1].trim());
+    }
+  }
+  return targets;
+}
+
+/**
+ * Agent state — memory notes under `~/.claude/`, scratchpads under the OS
+ * temp dir, harness config in home dot-directories — is not project code.
+ * The project's checks can never verify those writes, so classifying them as
+ * mutations both turned note-taking sessions into "unverified coding
+ * sessions" and let an end-of-session memory note invalidate checks that had
+ * already passed. A path inside the session's own working directory is never
+ * agent state: a dotfiles project under `~/.config` is still a project.
+ * Relative paths cannot be judged and keep the conservative mutation reading.
+ */
+function isAgentStatePath(path: string, projectDir: string | null): boolean {
+  const normalized = normalizePath(path);
+  if (!/^(?:[A-Za-z]:)?\//.test(normalized)) return false;
+  if (projectDir) {
+    const project = normalizePath(projectDir);
+    if (project && (normalized === project || normalized.startsWith(project + "/"))) return false;
+  }
+  const home = normalizePath(homedir());
+  if (home && normalized.startsWith(home + "/.")) return true;
+  return [normalizePath(tmpdir()), "/tmp", "/private/tmp", "/var/folders", "/private/var/folders"]
+    .filter((root) => root.length > 1)
+    .some((root) => normalized === root || normalized.startsWith(root + "/"));
+}
+
 function commandFromInput(value: unknown, depth = 0): string | null {
   if (depth > 2) return null;
   if (typeof value === "string") {
@@ -135,7 +203,22 @@ function commandFromInput(value: unknown, depth = 0): string | null {
   return null;
 }
 
-function classifyCommand(raw: string): Classified | null {
+/**
+ * A heredoc body is stdin data, not commands — `git commit -F - <<'EOF'` is
+ * how agents commit, and its body must not read as opaque chained commands.
+ * With a quoted delimiter the shell expands nothing, so the body is provably
+ * inert; an unquoted delimiter expands `$(…)` and backticks, so those bodies
+ * only drop when they contain neither.
+ */
+function stripHeredocs(raw: string): string {
+  return raw.replace(
+    /<<-?\s*(["']?)(\w+)\1[^\S\n]*(\n[\s\S]*?)\n\2(?=\n|$)/g,
+    (match, quote, _delimiter, body) => (quote || !/[$`]/.test(body) ? "" : match),
+  );
+}
+
+function classifyCommand(rawInput: string): Classified | null {
+  const raw = stripHeredocs(rawInput);
   // Separators inside quotes (`grep -E "a|b"`, heredoc commit messages) are
   // argument text, not chain structure, so quoted spans are blanked before
   // looking for separators. Classification only ever reads command prefixes
@@ -158,28 +241,44 @@ function classifyCommand(raw: string): Classified | null {
     );
     const parts = segments.map((segment) => classifyCommand(segment));
     if (parts.some((part) => part === null)) return null;
-    const strongest =
-      parts.findLast((part) => part?.kind === "delivery") ??
-      parts.findLast((part) => part?.kind === "verification");
-    if (!strongest) return { kind: "observation" };
-    const index = parts.lastIndexOf(strongest);
-    const exitUnreliable =
-      separators.slice(index).some((separator) => separator !== "&&") ||
-      strongest.exitUnreliable === true;
-    if (!exitUnreliable) return strongest;
-    // A failure marker only survives the pipe when every filter after the
-    // classifying segment keeps the end of the stream: `tail` and `cat` do,
-    // `head`/`grep`/`wc` may cut or drop the very lines that carry it.
-    let endPreserved = strongest.failureMarked === true;
-    for (let position = index; position < separators.length && endPreserved; position++) {
-      if (
-        separators[position] === "|" &&
-        !/^\s*(?:tail|cat)\b/.test(segments[position + 1] ?? "")
-      ) {
-        endPreserved = false;
+    // Whether a segment's verdict survives to the chain's end: its exit code
+    // is only meaningful when nothing but `&&` hops follow it, and a failure
+    // marker only survives the pipe when every filter after the segment keeps
+    // the end of the stream: `tail` and `cat` do, `head`/`grep`/`wc` may cut
+    // or drop the very lines that carry it.
+    const finalize = (part: Classified): Classified => {
+      const index = parts.lastIndexOf(part);
+      const exitUnreliable =
+        separators.slice(index).some((separator) => separator !== "&&") ||
+        part.exitUnreliable === true;
+      if (!exitUnreliable) return part;
+      let endPreserved = part.failureMarked === true;
+      for (let position = index; position < separators.length && endPreserved; position++) {
+        if (
+          separators[position] === "|" &&
+          !/^\s*(?:tail|cat)\b/.test(segments[position + 1] ?? "")
+        ) {
+          endPreserved = false;
+        }
       }
+      return { ...part, exitUnreliable, failureMarked: endPreserved };
+    };
+    const delivery = parts.findLast((part) => part?.kind === "delivery");
+    const verification = parts.findLast((part) => part?.kind === "verification");
+    if (!delivery && !verification) return { kind: "observation" };
+    if (!delivery) return finalize(verification!);
+    if (!verification) return finalize(delivery);
+    // Checks and a ship in one chain: the delivery is the chain's strongest
+    // claim, but the checks are the verification evidence. Certifying them
+    // needs every check in the chain to be provable — one unmarkable check
+    // could fail without stopping the ship, so its silence proves nothing.
+    const chained = finalize(verification);
+    if (chained.exitUnreliable) {
+      chained.failureMarked = parts
+        .filter((part) => part?.kind === "verification")
+        .every((part) => finalize(part!).failureMarked === true);
     }
-    return { ...strongest, exitUnreliable, failureMarked: endPreserved };
+    return { ...finalize(delivery), chainedVerification: chained };
   }
   const command = raw
     .trim()
@@ -300,9 +399,15 @@ function classifyCommand(raw: string): Classified | null {
   return null;
 }
 
-function classifyTool(name: string, input: unknown): Classified | null {
+function classifyTool(name: string, input: unknown, projectDir: string | null): Classified | null {
   const normalized = normalizeTool(name);
-  if (MUTATION_TOOLS.has(normalized)) return { kind: "mutation" };
+  if (MUTATION_TOOLS.has(normalized)) {
+    const targets = mutationTargets(input);
+    if (targets.length > 0 && targets.every((target) => isAgentStatePath(target, projectDir))) {
+      return { kind: "observation" };
+    }
+    return { kind: "mutation" };
+  }
   if (/^(?:create_)?pull_request$/.test(normalized) || normalized === "create_pr") {
     return { kind: "delivery" };
   }
@@ -430,9 +535,18 @@ export class WorkflowTracker {
   private unknownShellCall = false;
   private sessionChanged = false;
   private sequenceKnown: boolean;
+  private projectDirValue: string | null = null;
 
   constructor(private readonly options: TrackerOptions) {
     this.sequenceKnown = options.sequenceKnown;
+  }
+
+  /**
+   * First-seen session working directory. Scopes the agent-state exclusion:
+   * a write under this directory is always a project mutation.
+   */
+  projectDir(dir: string): void {
+    if (!this.projectDirValue && dir) this.projectDirValue = dir;
   }
 
   humanTurn(): void {
@@ -451,7 +565,7 @@ export class WorkflowTracker {
     resultText?: string | null,
   ): void {
     const normalized = normalizeTool(name);
-    let classified = classifyTool(name, input);
+    let classified = classifyTool(name, input, this.projectDirValue);
     if (!classified) {
       if (SHELL_TOOLS.has(normalized)) {
         this.unknownShellCall = true;
@@ -459,12 +573,20 @@ export class WorkflowTracker {
       } else if (OBSERVATION_TOOLS.has(normalized)) classified = { kind: "observation" };
       else classified = { kind: "unknown-tool" };
     }
-    const event: WorkflowEvent = {
-      ...classified,
-      outcome: "unknown",
-      turn: this.turn >= 0 ? this.turn : null,
-      name: normalized,
-    };
+    const { chainedVerification, ...bare } = classified;
+    const turn = this.turn >= 0 ? this.turn : null;
+    const event: WorkflowEvent = { ...bare, outcome: "unknown", turn, name: normalized };
+    if (chainedVerification) {
+      const companion: WorkflowEvent = {
+        ...chainedVerification,
+        outcome: "unknown",
+        turn,
+        name: normalized,
+        isCompanion: true,
+      };
+      this.events.push(companion);
+      event.companion = companion;
+    }
     this.events.push(event);
     if (id) this.callIds.set(id, event);
     if (outcome !== "unknown") this.settle(event, outcome, resultText);
@@ -480,7 +602,10 @@ export class WorkflowTracker {
     if (!event && name) {
       const normalized = normalizeTool(name);
       const candidates = this.events.filter(
-        (candidate) => candidate.name === normalized && candidate.outcome === "unknown",
+        (candidate) =>
+          candidate.name === normalized &&
+          candidate.outcome === "unknown" &&
+          candidate.isCompanion !== true,
       );
       if (candidates.length === 1) event = candidates[0];
     }
@@ -493,6 +618,11 @@ export class WorkflowTracker {
    * the event so the list stays ordered by completion.
    */
   private settle(event: WorkflowEvent, outcome: ToolOutcome, resultText?: string | null): void {
+    if (event.companion) {
+      const companion = event.companion;
+      event.companion = undefined;
+      this.settle(companion, outcome, resultText);
+    }
     if (event.exitUnreliable) {
       let verdict: ToolOutcome =
         event.kind === "verification" && typeof resultText === "string"
@@ -657,7 +787,9 @@ export class WorkflowTracker {
     else if (this.options.deliveryObservation && !this.unknownShellCall) delivery = "not-observed";
 
     return {
-      classifierVersion: 1,
+      // v2: agent-state writes (memory notes, scratchpads, harness config)
+      // classify as observation instead of mutation.
+      classifierVersion: 2,
       codeChange,
       sequenceKnown: this.sequenceKnown,
       finalVerification,

@@ -91,6 +91,7 @@ async function parseSession(
       if (lastTs === null || ts > lastTs) lastTs = ts;
     }
     if (typeof r.version === "string") report.latestVersion = r.version;
+    if (typeof r.cwd === "string" && r.cwd) workflow.projectDir(r.cwd);
     if (typeof r.gitBranch === "string" && r.gitBranch) branches.add(r.gitBranch);
     if (r.isSidechain === true && (r.type === "user" || r.type === "assistant"))
       sidechainMessages++;

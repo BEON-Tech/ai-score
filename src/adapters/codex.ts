@@ -101,7 +101,10 @@ async function parseSession(
       case "session_meta": {
         const nativeId = p.id ?? p.session_id;
         if (nativeId) s.id = hash16(String(nativeId));
-        if (typeof p.cwd === "string") s.projectId = hash16(p.cwd);
+        if (typeof p.cwd === "string") {
+          s.projectId = hash16(p.cwd);
+          workflow.projectDir(p.cwd);
+        }
         if (typeof p.cli_version === "string") report.latestVersion = p.cli_version;
         if (p.git) gitRepo = true;
         if (p.parent_thread_id) s.isSubagent = true;
