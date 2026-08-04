@@ -76,6 +76,9 @@ export const opencode: Adapter = {
           commandObservation: true,
           deliveryObservation: true,
         });
+        if (typeof row.directory === "string" && row.directory) {
+          workflow.projectDir(row.directory);
+        }
         if (
           (s.outcome.additions ?? 0) > 0 ||
           (s.outcome.deletions ?? 0) > 0 ||

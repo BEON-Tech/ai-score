@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { homedir, tmpdir } from "node:os";
 import { describe, it } from "node:test";
 import { codexOutcome } from "../dist/adapters/codex.js";
 import { toolOutcome, WorkflowTracker } from "../dist/workflow.js";
@@ -18,7 +19,7 @@ describe("workflow evidence", () => {
     t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
 
     assert.deepEqual(t.finish(), {
-      classifierVersion: 1,
+      classifierVersion: 2,
       codeChange: "success",
       sequenceKnown: true,
       finalVerification: "passed",
@@ -37,6 +38,73 @@ describe("workflow evidence", () => {
     t.toolCall("Edit", {}, "edit-2", "success");
 
     assert.equal(t.finish().finalVerification, "not-run");
+  });
+
+  it("does not let an agent memory note invalidate a passing check", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
+    t.toolCall(
+      "Write",
+      { file_path: `${homedir()}/.claude/projects/x/memory/note.md` },
+      "memory",
+      "success",
+    );
+    const evidence = t.finish();
+    assert.equal(evidence.finalVerification, "passed");
+    assert.equal(evidence.autonomousVerifiedChange, true);
+  });
+
+  it("does not count sessions that only write agent state as coding", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall(
+      "Write",
+      { file_path: `${homedir()}/.claude/projects/x/memory/MEMORY.md` },
+      "memory",
+      "success",
+    );
+    t.toolCall(
+      "Write",
+      { file_path: `${tmpdir()}/claude-501/scratchpad/plan.md` },
+      "scratch",
+      "success",
+    );
+    assert.equal(t.finish().codeChange, "none");
+  });
+
+  it("keeps writes inside a dot-directory project as mutations", () => {
+    const t = tracker();
+    t.projectDir(`${homedir()}/.config/nvim`);
+    t.humanTurn();
+    t.toolCall("Write", { file_path: `${homedir()}/.config/nvim/init.lua` }, "edit", "success");
+    assert.equal(t.finish().codeChange, "success");
+  });
+
+  it("keeps mutations with relative targets conservative", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
+    t.toolCall("Write", { file_path: "memory/note.md" }, "note", "success");
+    assert.equal(t.finish().finalVerification, "not-run");
+  });
+
+  it("classifies apply_patch by the files its patch touches", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
+    t.toolCall(
+      "apply_patch",
+      {
+        input: `*** Begin Patch\n*** Update File: ${homedir()}/.codex/notes.md\n*** End Patch`,
+      },
+      "patch",
+      "success",
+    );
+    assert.equal(t.finish().finalVerification, "passed");
   });
 
   it("invalidates a passing check when a later shell command cannot be classified", () => {
@@ -206,6 +274,96 @@ describe("workflow evidence", () => {
     const evidence = t.finish();
     assert.equal(evidence.finalVerification, "passed");
     assert.equal(evidence.delivery, "observed");
+  });
+
+  it("classifies stdin-heredoc commits as delivery, not opaque changes", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
+    t.toolCall(
+      "Bash",
+      {
+        command: "git add -A && git commit -F - <<'EOF'\nfeat: a | b; c\n\nbody text\nEOF",
+      },
+      "ship",
+      "success",
+    );
+    const evidence = t.finish();
+    assert.equal(evidence.finalVerification, "passed");
+    assert.equal(evidence.delivery, "observed");
+  });
+
+  it("certifies checks gated ahead of an unpiped ship chain", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall(
+      "Bash",
+      { command: 'pnpm test && git add -A && git commit -m "x" && git push' },
+      "ship",
+      "success",
+    );
+    const evidence = t.finish();
+    // The && chain only reaches the push when the tests exited 0.
+    assert.equal(evidence.finalVerification, "passed");
+    assert.equal(evidence.autonomousVerifiedChange, true);
+    assert.equal(evidence.delivery, "observed");
+    assert.deepEqual(evidence.verificationKinds, ["test"]);
+  });
+
+  it("certifies piped checks in a ship chain only when every check is markable", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall(
+      "Bash",
+      {
+        command:
+          'pnpm typecheck 2>&1 | tail -3 && pnpm test 2>&1 | tail -8 && git commit -am "x" && git push',
+      },
+      "ship",
+    );
+    // Both checks are pnpm-run scripts (marker on failure) and both pipes
+    // keep the end of the stream, so marker-free output is a pass.
+    t.toolResult("success", "ship", null, "> tsc\n> vitest run\n[main abc123] x\n");
+    const evidence = t.finish();
+    assert.equal(evidence.finalVerification, "passed");
+    assert.equal(evidence.delivery, "observed");
+  });
+
+  it("does not certify a ship chain whose checks cannot prove their verdict", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall(
+      "Bash",
+      {
+        // oxlint runs bare (no runner failure marker) and its pipe would let
+        // the chain ship even when it failed, so its silence proves nothing.
+        command:
+          'pnpm typecheck 2>&1 | tail -3 && pnpm exec oxlint src 2>&1 | tail -2 && git commit -am "x" && git push',
+      },
+      "ship",
+    );
+    t.toolResult("success", "ship", null, "> tsc\nclean\n[main abc123] x\n");
+    const evidence = t.finish();
+    assert.equal(evidence.finalVerification, "unknown");
+    assert.equal(evidence.delivery, "observed");
+  });
+
+  it("keeps unquoted heredocs with expansions opaque", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
+    t.toolCall(
+      "Bash",
+      { command: "git commit -F - <<EOF\nrelease $(date)\nEOF" },
+      "ship",
+      "success",
+    );
+    assert.equal(t.finish().finalVerification, "unknown");
   });
 
   it("keeps remote API tools out of the code-change boundary", () => {

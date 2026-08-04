@@ -45,7 +45,7 @@ export type VerificationKind = "test" | "typecheck" | "build" | "lint";
 
 /** Privacy-safe evidence derived locally from ordered tool calls and results. */
 export interface WorkflowEvidence {
-  classifierVersion: 1;
+  classifierVersion: 2;
   codeChange: WorkflowCodeChange;
   sequenceKnown: boolean;
   finalVerification: WorkflowVerification;
@@ -85,7 +85,7 @@ export interface HarnessReport {
 
 export interface Payload {
   schema: "beon.ai-score.v2";
-  client: { name: string; version: string; workflowClassifierVersion: 1 };
+  client: { name: string; version: string; workflowClassifierVersion: 2 };
   generatedAt: string;
   window: { days: number; start: string; end: string };
   /**
