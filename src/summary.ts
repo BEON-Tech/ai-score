@@ -403,7 +403,12 @@ export function renderScore(
     submissionId,
     "usage profile",
     USAGE_DIMENSION_COPY,
-    verifiedWorkflowAvailable ? ["diagnostic only — Verified Workflow determines rank"] : [],
+    // Read "determines rank" until the site stopped publishing a ranking. The
+    // card above is still the score that counts, but nobody running this can
+    // see a rank any more, so naming one pointed at a page that isn't there.
+    verifiedWorkflowAvailable
+      ? ["diagnostic only — Verified Workflow is the score that counts"]
+      : [],
     url,
   );
 }

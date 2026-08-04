@@ -236,8 +236,8 @@ describe("renderScore", () => {
   });
 
   it("only labels usage as secondary when the server returned workflow evidence", () => {
-    assert.doesNotMatch(plain(renderScore(score, null)), /determines rank/);
-    assert.match(plain(renderScore(score, null, true)), /determines rank/);
+    assert.doesNotMatch(plain(renderScore(score, null)), /diagnostic only/);
+    assert.match(plain(renderScore(score, null, true)), /the score that counts/);
   });
 
   it("bands the total by percentage, not by raw points", () => {
