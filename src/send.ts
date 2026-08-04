@@ -100,19 +100,21 @@ function parseWorkflow(value: unknown): VerifiedWorkflowResult | null {
  * report a false negative.
  */
 export function parseSubmission(body: string): SubmissionResult {
+  const empty: SubmissionResult = { id: null, score: null, verifiedWorkflow: null, url: null };
   let root: unknown;
   try {
     root = JSON.parse(body);
   } catch {
-    return { id: null, score: null, verifiedWorkflow: null };
+    return empty;
   }
-  if (!isRecord(root)) return { id: null, score: null, verifiedWorkflow: null };
+  if (!isRecord(root)) return empty;
 
   const id = typeof root["id"] === "string" ? root["id"] : null;
+  const url = parseViewUrl(root["url"]);
   const verifiedWorkflow = parseWorkflow(root["verifiedWorkflow"]);
   const raw = root["score"];
   if (!isRecord(raw) || !isFiniteNumber(raw["total"]) || !isRecord(raw["dimensions"])) {
-    return { id, score: null, verifiedWorkflow };
+    return { id, score: null, verifiedWorkflow, url };
   }
 
   const dimensions: Record<string, DimensionScore> = {};
@@ -126,7 +128,19 @@ export function parseSubmission(body: string): SubmissionResult {
     version: isFiniteNumber(raw["version"]) ? raw["version"] : 0,
     dimensions,
   };
-  return { id, score, verifiedWorkflow };
+  return { id, score, verifiedWorkflow, url };
+}
+
+/**
+ * The link this CLI will print and offer to open, so it is held to a stricter
+ * standard than the rest of the response: it must parse, and it must be
+ * http(s) — a server (or proxy) that hands back anything else gets no link
+ * rather than a terminal that launches who-knows-what.
+ */
+function parseViewUrl(value: unknown): string | null {
+  if (typeof value !== "string" || !URL.canParse(value)) return null;
+  const protocol = new URL(value).protocol;
+  return protocol === "https:" || protocol === "http:" ? value : null;
 }
 
 export async function send(

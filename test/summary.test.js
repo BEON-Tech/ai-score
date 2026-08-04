@@ -21,6 +21,7 @@ const dimension = (score, max) => ({ score, max, signals: {} });
 
 const FULL_BODY = JSON.stringify({
   id: "6332871d-0f63-4973-8a46-a0803b534670",
+  url: "https://score.example.com/submissions/6332871d-0f63-4973-8a46-a0803b534670",
   score: {
     total: 92,
     version: 1,
@@ -57,8 +58,9 @@ const FULL_BODY = JSON.stringify({
 
 describe("parseSubmission", () => {
   it("reads id and every dimension out of a well-formed response", () => {
-    const { id, score, verifiedWorkflow } = parseSubmission(FULL_BODY);
+    const { id, score, verifiedWorkflow, url } = parseSubmission(FULL_BODY);
     assert.equal(id, "6332871d-0f63-4973-8a46-a0803b534670");
+    assert.equal(url, "https://score.example.com/submissions/6332871d-0f63-4973-8a46-a0803b534670");
     assert.equal(score.total, 92);
     assert.equal(score.version, 1);
     assert.deepEqual(Object.keys(score.dimensions), [
@@ -91,17 +93,15 @@ describe("parseSubmission", () => {
       id: null,
       score: null,
       verifiedWorkflow: null,
+      url: null,
     });
   });
 
   it("returns nulls for JSON that is not an object", () => {
-    assert.deepEqual(parseSubmission("[1,2,3]"), {
-      id: null,
-      score: null,
-      verifiedWorkflow: null,
-    });
-    assert.deepEqual(parseSubmission("null"), { id: null, score: null, verifiedWorkflow: null });
-    assert.deepEqual(parseSubmission('"ok"'), { id: null, score: null, verifiedWorkflow: null });
+    const empty = { id: null, score: null, verifiedWorkflow: null, url: null };
+    assert.deepEqual(parseSubmission("[1,2,3]"), empty);
+    assert.deepEqual(parseSubmission("null"), empty);
+    assert.deepEqual(parseSubmission('"ok"'), empty);
   });
 
   it("keeps the id even when the score is unusable", () => {
@@ -109,7 +109,22 @@ describe("parseSubmission", () => {
       id: "abc",
       score: null,
       verifiedWorkflow: null,
+      url: null,
     });
+  });
+
+  // The url is printed and offered to a browser launcher, so anything but a
+  // well-formed http(s) URL must degrade to "no link" rather than pass through.
+  it("drops a view url that is not well-formed http(s)", () => {
+    const parse = (url) => parseSubmission(JSON.stringify({ id: "a", url })).url;
+    assert.equal(parse("javascript:alert(1)"), null);
+    assert.equal(parse("file:///etc/passwd"), null);
+    assert.equal(parse("not a url"), null);
+    assert.equal(parse(42), null);
+    assert.equal(
+      parse("http://localhost:3000/submissions/a"),
+      "http://localhost:3000/submissions/a",
+    );
   });
 
   it("drops a score with no dimensions object", () => {
@@ -212,6 +227,14 @@ describe("renderScore", () => {
     assert.doesNotMatch(plain(renderScore(score, null)), /submission/);
   });
 
+  it("prints the view link instead of the bare id when the server sent one", () => {
+    const out = plain(
+      renderScore(score, "abc-123", false, "https://s.example.com/submissions/abc-123"),
+    );
+    assert.match(out, /full report\s+https:\/\/s\.example\.com\/submissions\/abc-123/);
+    assert.doesNotMatch(out, /submission abc-123/);
+  });
+
   it("only labels usage as secondary when the server returned workflow evidence", () => {
     assert.doesNotMatch(plain(renderScore(score, null)), /determines rank/);
     assert.match(plain(renderScore(score, null, true)), /determines rank/);
@@ -237,6 +260,12 @@ describe("renderUploaded", () => {
 
   it("includes the id when there is one", () => {
     assert.match(plain(renderUploaded(201, "abc")), /abc/);
+  });
+
+  it("prefers the view link over the bare id", () => {
+    const out = plain(renderUploaded(201, "abc", "https://s.example.com/submissions/abc"));
+    assert.match(out, /https:\/\/s\.example\.com\/submissions\/abc/);
+    assert.doesNotMatch(out, / · abc/);
   });
 });
 

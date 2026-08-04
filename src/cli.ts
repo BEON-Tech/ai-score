@@ -17,6 +17,7 @@ import {
   TOKEN_ENV_VAR,
   whoami,
 } from "./auth/index.js";
+import { canOpenBrowser, openBrowser } from "./auth/browser.js";
 import { DEFAULT_BASE_URL, resolveTarget } from "./config.js";
 import { send, UnauthorizedError } from "./send.js";
 import {
@@ -56,7 +57,7 @@ Options
                       cursor-ide,opencode,pi
   --url <url>         ai-score server (default: $AI_SCORE_URL or
                       ${DEFAULT_BASE_URL})
-  --no-browser        print the login URL instead of opening a browser
+  --no-browser        never open a browser — print login and report URLs only
 
 Audit / consent
   --audit             print the exact JSON payload that would be uploaded
@@ -270,8 +271,34 @@ async function main(): Promise<void> {
       process.stderr.write(renderVerifiedWorkflow(result.verifiedWorkflow));
     }
     if (result.score) {
-      process.stderr.write(renderScore(result.score, result.id, result.verifiedWorkflow !== null));
-    } else process.stderr.write(renderUploaded(status, result.id));
+      process.stderr.write(
+        renderScore(result.score, result.id, result.verifiedWorkflow !== null, result.url),
+      );
+    } else process.stderr.write(renderUploaded(status, result.id, result.url));
+
+    // Offer to open the full report, but only in a session that is already
+    // conversational: `--yes` promised no prompts (its runs may be scripted
+    // with a live TTY), and `--no-browser` said never to spawn one. The URL
+    // is printed above either way, so declining loses nothing.
+    if (
+      result.url &&
+      !values.yes &&
+      !values["no-browser"] &&
+      process.stdin.isTTY &&
+      canOpenBrowser()
+    ) {
+      const rl = createInterface({ input: process.stdin, output: process.stderr });
+      const answer = (
+        await rl.question(
+          `  ${c.text("Open the full report in your browser?")} ${c.faint("[Y/n]")} `,
+        )
+      )
+        .trim()
+        .toLowerCase();
+      rl.close();
+      if (answer === "" || answer === "y" || answer === "yes") openBrowser(result.url);
+      process.stderr.write("\n");
+    }
   } catch (err) {
     if (err instanceof UnauthorizedError) {
       // Drop the dead token so the next run does not repeat this failure.

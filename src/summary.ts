@@ -324,6 +324,7 @@ function renderScoreCard(
   title: string,
   copy: Record<string, string>,
   notes: string[] = [],
+  url: string | null = null,
 ): string {
   const entries = Object.entries(score.dimensions);
   const outOf = entries.reduce((sum, [, d]) => sum + d.max, 0);
@@ -375,11 +376,16 @@ function renderScoreCard(
     for (const note of notes) out.push(`${PAD}${c.faint("⌐")} ${c.muted(note)}`);
   }
 
-  if (submissionId) {
+  if (url) {
     out.push("");
-    // Set as a note rather than a labelled field: it is a support reference, not
-    // a headline. Plain text, not a link — the server has no submission-view
-    // route yet, and printing a URL that 404s is worse than printing none.
+    // The server said where this submission can be viewed, and the id is part
+    // of that URL — one line serves as both the link and the support reference.
+    out.push(`${PAD}${c.faint("⌐")} ${c.muted("full report")}  ${c.under(c.muted(url))}`);
+  } else if (submissionId) {
+    out.push("");
+    // Set as a note rather than a labelled field: it is a support reference,
+    // not a headline. An older server sends no view URL, and printing a URL
+    // that 404s is worse than printing none — so the bare id it is.
     out.push(`${PAD}${c.faint("⌐")} ${c.muted(`submission ${submissionId}`)}`);
   }
   out.push("");
@@ -390,6 +396,7 @@ export function renderScore(
   score: Score,
   submissionId: string | null,
   verifiedWorkflowAvailable = false,
+  url: string | null = null,
 ): string {
   return renderScoreCard(
     score,
@@ -397,6 +404,7 @@ export function renderScore(
     "usage profile",
     USAGE_DIMENSION_COPY,
     verifiedWorkflowAvailable ? ["diagnostic only — Verified Workflow determines rank"] : [],
+    url,
   );
 }
 
@@ -453,7 +461,12 @@ function formatScore(n: number): string {
  * Shown when the upload succeeded but the response was not a score we
  * recognise — the submission still landed, and saying so beats printing JSON.
  */
-export function renderUploaded(status: number, id: string | null): string {
-  const detail = id ? c.faint(` · ${id}`) : "";
+export function renderUploaded(
+  status: number,
+  id: string | null,
+  url: string | null = null,
+): string {
+  // The URL embeds the id, so show whichever is the most useful single detail.
+  const detail = url ? ` ${c.under(c.muted(url))}` : id ? c.faint(` · ${id}`) : "";
   return `${PAD}${c.ok("✓")} ${c.text("report uploaded")} ${c.faint(`(HTTP ${status})`)}${detail}\n`;
 }

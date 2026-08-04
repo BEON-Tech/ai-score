@@ -143,11 +143,13 @@ export type VerifiedWorkflowResult =
       evidence: WorkflowEvidenceSummary;
     };
 
-/** Parsed upload response. Both fields are null when the shape is unfamiliar. */
+/** Parsed upload response. Every field is null when the shape is unfamiliar. */
 export interface SubmissionResult {
   id: string | null;
   score: Score | null;
   verifiedWorkflow: VerifiedWorkflowResult | null;
+  /** Where the submitter can view this run in full — absent on older servers. */
+  url: string | null;
 }
 
 export interface CollectContext {
