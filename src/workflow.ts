@@ -95,6 +95,8 @@ const SHELL_TOOLS = new Set([
 
 const OBSERVATION_TOOLS = new Set([
   "askuserquestion",
+  "enterplanmode",
+  "enterworktree",
   "exitplanmode",
   "glob",
   "grep",
@@ -104,10 +106,12 @@ const OBSERVATION_TOOLS = new Set([
   "read",
   "read_file",
   "search",
+  "sendmessage",
   "skill",
   "taskcreate",
   "tasklist",
   "taskoutput",
+  "taskstop",
   "taskupdate",
   "todowrite",
   "toolsearch",
@@ -116,7 +120,9 @@ const OBSERVATION_TOOLS = new Set([
   // what carries the uncertainty, so waiting on it observes, not changes.
   "wait",
   "web_search",
+  "websearch",
   "webfetch",
+  "write_stdin",
 ]);
 
 const normalizeTool = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "_");
@@ -227,7 +233,12 @@ function classifyCommand(rawInput: string): Classified | null {
   // A newline outside quotes chains commands exactly like `;`. Unquoted
   // heredoc bodies land here too and classify as opaque segments, which is
   // the conservative outcome.
-  if (masked.includes("||")) return null;
+  if (masked.includes("||")) {
+    const alternatives = masked.split("||").map((segment) => classifyCommand(segment));
+    return alternatives.every((part) => part?.kind === "observation")
+      ? { kind: "observation" }
+      : null;
+  }
   // `cd app && pnpm build && pnpm test 2>&1 | tail -8` is how agents actually
   // run checks. A chain classifies as its strongest classifiable segment —
   // but only when every segment is classifiable; one opaque segment hides
@@ -288,13 +299,14 @@ function classifyCommand(rawInput: string): Classified | null {
     // `vitest`; the runner adds nothing to the classification.
     .replace(/^(?:npx|bunx|(?:pnpm|yarn)\s+(?:exec|dlx)|bun\s+x)(?:\s+-+[a-z-]+)*\s+/, "");
   if (!command) return null;
+  const optionCommand = command.replace(/"[^"]*"|'[^']*'/g, "Q");
   if (
     /(?:^|\s)(?:--help|-h|--version|--dry-run|--dryrun|--if-present|--listtests|--list-tests|--collect-only|--fixtures|--showconfig|--show-config|--no-run|-co|-list)(?:\s|$)/.test(
-      command,
+      optionCommand,
     ) ||
-    /^(?:npx\s+)?vitest\s+list(?:\s|$)/.test(command)
+    /^(?:npx\s+)?vitest\s+list(?:\s|$)/.test(optionCommand)
   ) {
-    return null;
+    return { kind: "observation" };
   }
 
   if (
@@ -356,6 +368,7 @@ function classifyCommand(rawInput: string): Classified | null {
     /^(?:pnpm|npm|yarn|bun)(?:\s+run)?\s+(?:lint(?::[a-z0-9:_-]+)?|(?:fmt|format):check)(?:\s|$)/.test(
       command,
     ) ||
+    /^(?:npx\s+)?oxfmt\s+--check(?:\s|$)/.test(command) ||
     /^(?:npx\s+)?(?:eslint|oxlint)(?:\s|$)/.test(command) ||
     /^(?:ruff\s+check|biome\s+check|cargo\s+clippy|golangci-lint)(?:\s|$)/.test(command)
   ) {
@@ -365,34 +378,50 @@ function classifyCommand(rawInput: string): Classified | null {
       failureMarked: /^(?:pnpm|npm|yarn)(?:\s+run)?\s/.test(command),
     };
   }
-  // `>` can turn even `echo` into a file write, so redirects stay unclassified.
-  if (!command.includes(">")) {
+  // Descriptor redirects and /dev/null do not touch project files. Other `>`
+  // targets can turn even `echo` into a write, so they stay unclassified.
+  const observationCommand = command
+    .replace(/"[^"]*"|'[^']*'/g, "Q")
+    .replace(/\s+[012]?>\s*\/dev\/null(?=\s|$)/g, "")
+    .replace(/\s+[012]?>&[012](?=\s|$)/g, "")
+    .replace(/^git(?:\s+(?:--no-pager|-C\s+\S+|-c\s+\S+))+\s+/, "git ");
+  if (!observationCommand.includes(">")) {
     if (
-      /^(?:pwd|ls|cd|echo|cat|head|tail|which|sleep|true|nl|wc|jq|tree|date|rg|grep|diff|sort|uniq|cut|tr|column|basename|dirname|stat|du|file)(?:\s|$)/.test(
-        command,
+      /^(?:pwd|ls|cd|echo|cat|head|tail|which|sleep|true|env|nl|wc|jq|tree|date|rg|grep|diff|sort|uniq|cut|tr|column|basename|dirname|stat|du|file)(?:\s|$)/.test(
+        observationCommand,
       ) ||
-      /^git\s+(?:status|diff|log|show|rev-parse|rev-list|branch|remote|fetch|blame|ls-files|ls-remote|describe|shortlog|grep|add)(?:\s|$)/.test(
-        command,
+      /^git\s+(?:status|diff|log|show|rev-parse|rev-list|branch|remote|fetch|blame|ls-files|ls-remote|describe|shortlog|grep|add|merge-base|check-ignore|reflog|config)(?:\s|$)/.test(
+        observationCommand,
+      ) ||
+      /^git\s+(?:checkout\s+-b|switch\s+-c)\s+\S+$/.test(observationCommand) ||
+      /^(?:git|gh|npm|pnpm|yarn|bun|node|python3?|go|cargo)\s+--version(?:\s|$)/.test(
+        observationCommand,
       ) ||
       // Remote gh calls change GitHub, never this working tree. `pr checkout`
       // and `repo clone` are the tree-touching exceptions and stay out.
       /^gh\s+(?:api|auth\s+status|repo\s+view|pr\s+(?!checkout\b)[a-z-]+|issue\s+[a-z-]+|run\s+(?:view|list|watch|rerun|cancel)|release\s+(?:view|list)|workflow\s+[a-z-]+)(?:\s|$)/.test(
-        command,
+        observationCommand,
       ) ||
-      /^(?:npm|pnpm|yarn)\s+(?:view|info|why|ls|list|outdated)(?:\s|$)/.test(command) ||
+      /^(?:npm|pnpm|yarn)\s+(?:view|info|why|ls|list|outdated)(?:\s|$)/.test(observationCommand) ||
       // A bare install syncs node_modules to the lockfile; naming packages
       // would rewrite package.json, so any non-flag argument disqualifies.
-      /^(?:pnpm|npm|yarn|bun)\s+(?:install|i)(?:\s+-+[a-z-]+)*$/.test(command) ||
-      /^ctx7(?:@[^\s]*)?(?:\s|$)/.test(command)
+      /^(?:pnpm|npm|yarn|bun)\s+(?:install|i)(?:\s+-+[a-z-]+)*$/.test(observationCommand) ||
+      /^ctx7(?:@[^\s]*)?(?:\s|$)/.test(observationCommand)
     ) {
       return { kind: "observation" };
     }
     // sed only reads with -n and no in-place flag; find only reads until
     // -delete or -exec appears.
-    if (/^sed\s+-n(?:\s|$)/.test(command) && !/\s-i\b|--in-place/.test(command)) {
+    if (
+      /^sed\s+-n(?:\s|$)/.test(observationCommand) &&
+      !/\s-i\b|--in-place/.test(observationCommand)
+    ) {
       return { kind: "observation" };
     }
-    if (/^find(?:\s|$)/.test(command) && !/\s-(?:delete|exec|execdir|ok|okdir)\b/.test(command)) {
+    if (
+      /^find(?:\s|$)/.test(observationCommand) &&
+      !/\s-(?:delete|exec|execdir|ok|okdir)\b/.test(observationCommand)
+    ) {
       return { kind: "observation" };
     }
   }

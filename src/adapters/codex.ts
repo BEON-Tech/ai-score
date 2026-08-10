@@ -43,6 +43,22 @@ export function codexOutcome(output: unknown): ToolOutcome {
   return "unknown";
 }
 
+export function codexDetachedIdFromInput(input: unknown): string | null {
+  try {
+    const value = typeof input === "string" ? JSON.parse(input) : input;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const record = value as Record<string, unknown>;
+    const id = record["session_id"] ?? record["sessionId"] ?? record["cell_id"] ?? record["cellId"];
+    return typeof id === "string" || typeof id === "number" ? String(id) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function codexDetachedIdFromOutput(output: unknown): string | null {
+  return codexText(output).match(/\b(?:session|cell) ID\s+([^\s.]+)/i)?.[1] ?? null;
+}
+
 async function parseSession(
   file: string,
   report: HarnessReport,
@@ -62,6 +78,9 @@ async function parseSession(
   let lastTs: number | null = null;
   let turnStart: number | null = null;
   let turnTools = 0;
+  // Desktop returns long-running exec results through later wait/write_stdin calls.
+  const detachedCalls = new Map<string, string>();
+  const detachedPolls = new Map<string, { processId: string; callId: string }>();
   const workflow = new WorkflowTracker({
     sequenceKnown: true,
     commandObservation: true,
@@ -130,25 +149,44 @@ async function parseSession(
           case "function_call":
           case "custom_tool_call": {
             const name = typeof p.name === "string" ? p.name : "unknown";
+            const callId =
+              typeof p.call_id === "string" ? p.call_id : typeof p.id === "string" ? p.id : null;
             s.counts.toolCalls++;
             s.tools[name] = (s.tools[name] ?? 0) + 1;
-            workflow.toolCall(
-              name,
-              p.arguments ?? p.input,
-              typeof p.call_id === "string" ? p.call_id : typeof p.id === "string" ? p.id : null,
-            );
+            workflow.toolCall(name, p.arguments ?? p.input, callId);
+            if (callId && ["wait", "write_stdin"].includes(name.toLowerCase())) {
+              const processId = codexDetachedIdFromInput(p.arguments ?? p.input);
+              const originalCallId = processId ? detachedCalls.get(processId) : null;
+              if (processId && originalCallId) {
+                detachedPolls.set(callId, { processId, callId: originalCallId });
+              }
+            }
             turnTools++;
             break;
           }
           case "function_call_output":
-          case "custom_tool_call_output":
-            workflow.toolResult(
-              codexOutcome(p.output ?? p.result ?? p),
-              typeof p.call_id === "string" ? p.call_id : typeof p.id === "string" ? p.id : null,
-              null,
-              codexText(p.output ?? p.result),
-            );
+          case "custom_tool_call_output": {
+            const output = p.output ?? p.result ?? p;
+            const text = codexText(p.output ?? p.result);
+            const outcome = codexOutcome(output);
+            const callId =
+              typeof p.call_id === "string" ? p.call_id : typeof p.id === "string" ? p.id : null;
+            workflow.toolResult(outcome, callId, null, text);
+            if (callId) {
+              const poll = detachedPolls.get(callId);
+              if (poll) {
+                workflow.toolResult(outcome, poll.callId, null, text);
+                if (outcome !== "unknown") {
+                  detachedCalls.delete(poll.processId);
+                  detachedPolls.delete(callId);
+                }
+              } else {
+                const processId = codexDetachedIdFromOutput(output);
+                if (processId) detachedCalls.set(processId, callId);
+              }
+            }
             break;
+          }
         }
         break;
       }

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { homedir, tmpdir } from "node:os";
 import { describe, it } from "node:test";
-import { codexOutcome } from "../dist/adapters/codex.js";
+import {
+  codexDetachedIdFromInput,
+  codexDetachedIdFromOutput,
+  codexOutcome,
+} from "../dist/adapters/codex.js";
 import { toolOutcome, WorkflowTracker } from "../dist/workflow.js";
 
 const tracker = () =>
@@ -394,6 +398,37 @@ describe("workflow evidence", () => {
     assert.equal(t.finish().finalVerification, "unknown");
   });
 
+  it("keeps read-only shell wrappers after a passing check observable", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
+    t.toolCall(
+      "Bash",
+      { command: 'git -C "/private/repo" status 2>/dev/null' },
+      "status",
+      "success",
+    );
+    t.toolCall("Bash", { command: "git checkout -b feature" }, "branch", "success");
+    t.toolCall("Bash", { command: "pnpm --version >/dev/null" }, "version", "success");
+    t.toolCall(
+      "Bash",
+      { command: "git rev-parse @{upstream} 2>/dev/null || echo none" },
+      "fallback",
+      "success",
+    );
+    t.toolCall("SendMessage", {}, "message", "success");
+    assert.equal(t.finish().finalVerification, "passed");
+  });
+
+  it("does not let an or-fallback turn a failed check into evidence", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm test || true" }, "test", "success");
+    assert.equal(t.finish().finalVerification, "unknown");
+  });
+
   it("does not count help or dry-run invocations as evidence", () => {
     const t = tracker();
     t.humanTurn();
@@ -401,8 +436,8 @@ describe("workflow evidence", () => {
     t.toolCall("Bash", { command: "vitest --help" }, "help", "success");
     t.toolCall("Bash", { command: "gh pr create --dry-run" }, "pr", "success");
     const evidence = t.finish();
-    assert.equal(evidence.finalVerification, "unknown");
-    assert.equal(evidence.delivery, "unknown");
+    assert.equal(evidence.finalVerification, "not-run");
+    assert.equal(evidence.delivery, "not-observed");
   });
 
   it("does not count collection and configuration-only commands as checks", () => {
@@ -416,7 +451,7 @@ describe("workflow evidence", () => {
       t.humanTurn();
       t.toolCall("Edit", {}, "edit", "success");
       t.toolCall("Bash", { command }, command, "success");
-      assert.equal(t.finish().finalVerification, "unknown", command);
+      assert.equal(t.finish().finalVerification, "not-run", command);
     }
   });
 
@@ -487,6 +522,24 @@ describe("workflow evidence", () => {
     assert.equal(codexOutcome("Script running with cell ID 4"), "unknown");
     // Structured statuses still win over the prose wrapper.
     assert.equal(codexOutcome('{"exit_code":1}'), "failure");
+  });
+
+  it("settles a detached codex check from its polling result", () => {
+    assert.equal(codexDetachedIdFromOutput("Process running with session ID 89726"), "89726");
+    assert.equal(codexDetachedIdFromOutput("Script running with cell ID 4"), "4");
+    assert.equal(codexDetachedIdFromInput('{"session_id":89726}'), "89726");
+    assert.equal(codexDetachedIdFromInput({ cellId: "4" }), "4");
+
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("exec_command", { cmd: "pnpm test" }, "exec");
+    t.toolResult("unknown", "exec");
+    t.toolCall("write_stdin", { session_id: 89726 }, "poll");
+    t.toolResult("success", "poll");
+    t.toolResult("success", "exec");
+
+    assert.equal(t.finish().finalVerification, "passed");
   });
 
   it("never retains command text in the wire-safe result", () => {
