@@ -491,7 +491,8 @@ export function verificationVerdict(text: string): ToolOutcome {
     /\bELIFECYCLE\b/.test(tail) || // pnpm script exited non-zero
     /\bnpm ERR!/.test(tail) || // npm script exited non-zero
     /\berror Command failed\b/.test(tail) || // yarn script exited non-zero
-    /✖ \d+ problems?\b/.test(tail) // eslint
+    /✖ \d+ problems?\b/.test(tail) || // eslint
+    /\bfound \d+ warnings? and (?!0\b)\d+ errors?\b/i.test(tail) // oxlint
   ) {
     return "failure";
   }
@@ -499,7 +500,9 @@ export function verificationVerdict(text: string): ToolOutcome {
     /\b(?!0+\b)\d+\s+pass(?:ed|ing)?\b/i.test(tail) || // "9 passed"
     /\bpass\s+(?!0+\b)\d+\b/i.test(tail) || // node --test "pass 97"
     /\btest result: ok\b/.test(tail) || // cargo
-    /^ok\s+\S+/m.test(tail) // go test
+    /^ok\s+\S+/m.test(tail) || // go test
+    /\bfound \d+ warnings? and 0 errors?\b/i.test(tail) || // oxlint (exit 0 with warnings)
+    /\ball matched files use the correct format\b/i.test(tail) // oxfmt --check
   ) {
     return "success";
   }

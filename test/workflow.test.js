@@ -6,7 +6,7 @@ import {
   codexDetachedIdFromOutput,
   codexOutcome,
 } from "../dist/adapters/codex.js";
-import { toolOutcome, WorkflowTracker } from "../dist/workflow.js";
+import { toolOutcome, verificationVerdict, WorkflowTracker } from "../dist/workflow.js";
 
 const tracker = () =>
   new WorkflowTracker({
@@ -418,6 +418,23 @@ describe("workflow evidence", () => {
       "success",
     );
     t.toolCall("SendMessage", {}, "message", "success");
+    assert.equal(t.finish().finalVerification, "passed");
+  });
+
+  it("reads oxlint and oxfmt summaries as check verdicts", () => {
+    assert.equal(verificationVerdict("Found 0 warnings and 0 errors."), "success");
+    assert.equal(verificationVerdict("Found 3 warnings and 0 errors."), "success");
+    assert.equal(verificationVerdict("Found 1 warning and 2 errors."), "failure");
+    assert.equal(
+      verificationVerdict("Checking formatting...\n\nAll matched files use the correct format."),
+      "success",
+    );
+
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "npx oxlint src 2>&1 | tail -5" }, "lint");
+    t.toolResult("success", "lint", null, "Found 0 warnings and 0 errors.");
     assert.equal(t.finish().finalVerification, "passed");
   });
 
