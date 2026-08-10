@@ -295,9 +295,12 @@ function classifyCommand(rawInput: string): Classified | null {
     .trim()
     .toLowerCase()
     .replace(/^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*/, "")
-    // `pnpm exec tsc` and `npx vitest` are the same check as `tsc` and
-    // `vitest`; the runner adds nothing to the classification.
-    .replace(/^(?:npx|bunx|(?:pnpm|yarn)\s+(?:exec|dlx)|bun\s+x)(?:\s+-+[a-z-]+)*\s+/, "");
+    // `pnpm exec tsc`, `npx vitest`, `uv run pytest` and `bundle exec rspec`
+    // are the same checks as the bare tools; the runner adds nothing.
+    .replace(
+      /^(?:npx|bunx|(?:pnpm|yarn)\s+(?:exec|dlx)|bun\s+x|(?:uv|poetry|pipenv|hatch)\s+run|bundle\s+exec)(?:\s+-+[a-z-]+)*\s+/,
+      "",
+    );
   if (!command) return null;
   const optionCommand = command.replace(/"[^"]*"|'[^']*'/g, "Q");
   if (
@@ -323,19 +326,26 @@ function classifyCommand(rawInput: string): Classified | null {
     /^(?:pnpm|npm|yarn|bun)(?:\s+run)?\s+(?:test|vitest|jest)(?::[a-z0-9:_-]+)?(?:\s|$)/.test(
       command,
     ) ||
-    /^(?:(?:npx|pnpm|yarn|bun)\s+(?:exec\s+)?)?(?:vitest|jest|pytest|phpunit|rspec)(?:\s|$)/.test(
+    /^(?:(?:npx|pnpm|yarn|bun)\s+(?:exec\s+)?)?(?:vitest|jest|pytest|phpunit|pest|rspec|tox)(?:\s|$)/.test(
       command,
     ) ||
-    /^python(?:3)?\s+-m\s+pytest(?:\s|$)/.test(command) ||
-    /^(?:go|cargo|dotnet)\s+test(?:\s|$)/.test(command) ||
-    /^(?:mvn|mvnw)(?:\s+[^\s]+)*\s+test(?:\s|$)/.test(command) ||
-    /^(?:gradle|gradlew)(?:\s+[^\s]+)*\s+test(?:\s|$)/.test(command) ||
+    /^(?:\.\/)?vendor\/bin\/(?:phpunit|pest)(?:\s|$)/.test(command) ||
+    /^python(?:3)?\s+-m\s+(?:pytest|unittest)(?:\s|$)/.test(command) ||
+    /^(?:go|cargo|dotnet|mix|deno|dart|flutter|swift)\s+test(?:\s|$)/.test(command) ||
+    /^zig\s+(?:build\s+)?test(?:\s|$)/.test(command) ||
+    /^(?:rake|composer|php\s+artisan)\s+test(?:\s|$)/.test(command) ||
+    /^(?:make\s+(?:test|check)|ctest)(?:\s|$)/.test(command) ||
+    /^(?:\.\/)?(?:mvn|mvnw)(?:\s+[^\s]+)*\s+test(?:\s|$)/.test(command) ||
+    /^(?:\.\/)?(?:gradle|gradlew)(?:\s+[^\s]+)*\s+test(?:\s|$)/.test(command) ||
     /^node\s+--test(?:\s|$)/.test(command)
   ) {
     return {
       kind: "verification",
       verificationKind: "test",
-      failureMarked: /^(?:pnpm|npm|yarn)(?:\s+run)?\s/.test(command),
+      failureMarked:
+        /^(?:pnpm|npm|yarn)(?:\s+run)?\s|^make\s|^(?:\.\/)?(?:mvn|mvnw|gradle|gradlew)\b/.test(
+          command,
+        ),
     };
   }
   if (
@@ -343,7 +353,8 @@ function classifyCommand(rawInput: string): Classified | null {
       command,
     ) ||
     /^(?:npx\s+)?tsc(?:\s|$)/.test(command) ||
-    /^(?:mypy|pyright|go\s+vet)(?:\s|$)/.test(command)
+    /^(?:mypy|pyright|go\s+vet|cargo\s+check|deno\s+check|phpstan|psalm)(?:\s|$)/.test(command) ||
+    /^(?:dart|flutter)\s+analyze(?:\s|$)/.test(command)
   ) {
     return {
       kind: "verification",
@@ -353,14 +364,20 @@ function classifyCommand(rawInput: string): Classified | null {
   }
   if (
     /^(?:pnpm|npm|yarn|bun)(?:\s+run)?\s+build(?::[a-z0-9:_-]+)?(?:\s|$)/.test(command) ||
-    /^(?:go|cargo|dotnet)\s+build(?:\s|$)/.test(command) ||
-    /^(?:mvn|mvnw)(?:\s+[^\s]+)*\s+(?:package|verify)(?:\s|$)/.test(command) ||
-    /^(?:gradle|gradlew)(?:\s+[^\s]+)*\s+build(?:\s|$)/.test(command)
+    /^(?:go|cargo|dotnet|swift|flutter)\s+build(?:\s|$)/.test(command) ||
+    /^zig\s+build(?!\s+test)(?:\s|$)/.test(command) ||
+    /^mix\s+compile(?:\s|$)/.test(command) ||
+    /^make(?:\s+(?:build|all))?$/.test(command) ||
+    /^(?:\.\/)?(?:mvn|mvnw)(?:\s+[^\s]+)*\s+(?:package|verify)(?:\s|$)/.test(command) ||
+    /^(?:\.\/)?(?:gradle|gradlew)(?:\s+[^\s]+)*\s+build(?:\s|$)/.test(command)
   ) {
     return {
       kind: "verification",
       verificationKind: "build",
-      failureMarked: /^(?:pnpm|npm|yarn)(?:\s+run)?\s/.test(command),
+      failureMarked:
+        /^(?:pnpm|npm|yarn)(?:\s+run)?\s|^make\b|^(?:\.\/)?(?:mvn|mvnw|gradle|gradlew)\b/.test(
+          command,
+        ),
     };
   }
   if (
@@ -370,7 +387,16 @@ function classifyCommand(rawInput: string): Classified | null {
     ) ||
     /^(?:npx\s+)?oxfmt\s+--check(?:\s|$)/.test(command) ||
     /^(?:npx\s+)?(?:eslint|oxlint)(?:\s|$)/.test(command) ||
-    /^(?:ruff\s+check|biome\s+check|cargo\s+clippy|golangci-lint)(?:\s|$)/.test(command)
+    /^(?:ruff\s+check|biome\s+check|cargo\s+clippy|golangci-lint|staticcheck)(?:\s|$)/.test(
+      command,
+    ) ||
+    /^(?:flake8|pylint|rubocop|swiftlint|deno\s+lint)(?:\s|$)/.test(command) ||
+    /^(?:black|ruff\s+format)\b(?=.*--check(?:\s|$))/.test(command) ||
+    /^prettier\b(?=.*(?:--check|-c)(?:\s|$))/.test(command) ||
+    /^(?:deno\s+fmt|cargo\s+fmt)\b(?=.*--check(?:\s|$))/.test(command) ||
+    /^mix\s+(?:format\s+--check-formatted|credo)(?:\s|$)/.test(command) ||
+    /^dotnet\s+format\b(?=.*--verify-no-changes(?:\s|$))/.test(command) ||
+    /^terraform\s+(?:validate|fmt\s+-check)(?:\s|$)/.test(command)
   ) {
     return {
       kind: "verification",
@@ -492,7 +518,9 @@ export function verificationVerdict(text: string): ToolOutcome {
     /\bnpm ERR!/.test(tail) || // npm script exited non-zero
     /\berror Command failed\b/.test(tail) || // yarn script exited non-zero
     /✖ \d+ problems?\b/.test(tail) || // eslint
-    /\bfound \d+ warnings? and (?!0\b)\d+ errors?\b/i.test(tail) // oxlint
+    /\bfound \d+ warnings? and (?!0\b)\d+ errors?\b/i.test(tail) || // oxlint
+    /\bBUILD FAIL(?:ED|URE)\b/.test(tail) || // gradle / maven
+    /^make: \*\*\*/m.test(tail) // make target exited non-zero
   ) {
     return "failure";
   }
@@ -502,7 +530,10 @@ export function verificationVerdict(text: string): ToolOutcome {
     /\btest result: ok\b/.test(tail) || // cargo
     /^ok\s+\S+/m.test(tail) || // go test
     /\bfound \d+ warnings? and 0 errors?\b/i.test(tail) || // oxlint (exit 0 with warnings)
-    /\ball matched files use the correct format\b/i.test(tail) // oxfmt --check
+    /\ball matched files use the correct format\b/i.test(tail) || // oxfmt --check
+    /\bBUILD SUCCESS(?:FUL)?\b/.test(tail) || // maven / gradle
+    /\b\d+ (?:examples?|tests?), 0 failures\b/.test(tail) || // rspec / exunit
+    /\ball checks passed\b/i.test(tail) // ruff
   ) {
     return "success";
   }

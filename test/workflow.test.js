@@ -421,6 +421,60 @@ describe("workflow evidence", () => {
     assert.equal(t.finish().finalVerification, "passed");
   });
 
+  it("recognises checks across ecosystems, not just the JS toolchain", () => {
+    for (const command of [
+      "bundle exec rspec",
+      "uv run pytest -q",
+      "poetry run pytest",
+      "python -m unittest discover",
+      "mix test",
+      "rake test",
+      "deno test",
+      "dart test",
+      "flutter test",
+      "swift test",
+      "zig build test",
+      "make check",
+      "ctest --output-on-failure",
+      "./gradlew test",
+      "./mvnw test",
+      "vendor/bin/phpunit",
+      "php artisan test",
+      "cargo check",
+      "phpstan analyse",
+      "dart analyze",
+      "mix compile",
+      "swift build",
+      "make",
+      "./gradlew build",
+      "rubocop",
+      "flake8 src",
+      "black --check .",
+      "prettier --check src",
+      "cargo fmt --check",
+      "deno lint",
+      "mix format --check-formatted",
+      "terraform validate",
+    ]) {
+      const t = tracker();
+      t.humanTurn();
+      t.toolCall("Edit", {}, "edit", "success");
+      t.toolCall("Bash", { command }, command, "success");
+      assert.equal(t.finish().finalVerification, "passed", command);
+    }
+  });
+
+  it("reads cross-ecosystem runner summaries as verdicts", () => {
+    assert.equal(verificationVerdict("[INFO] BUILD SUCCESS\n[INFO] Total time: 3s"), "success");
+    assert.equal(verificationVerdict("BUILD SUCCESSFUL in 2s"), "success");
+    assert.equal(verificationVerdict("[ERROR] BUILD FAILURE"), "failure");
+    assert.equal(verificationVerdict("make: *** [test] Error 2"), "failure");
+    assert.equal(verificationVerdict("10 examples, 0 failures"), "success");
+    assert.equal(verificationVerdict("4 tests, 0 failures"), "success");
+    assert.equal(verificationVerdict("10 examples, 2 failures"), "failure");
+    assert.equal(verificationVerdict("All checks passed!"), "success");
+  });
+
   it("reads oxlint and oxfmt summaries as check verdicts", () => {
     assert.equal(verificationVerdict("Found 0 warnings and 0 errors."), "success");
     assert.equal(verificationVerdict("Found 3 warnings and 0 errors."), "success");
