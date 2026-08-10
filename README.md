@@ -25,7 +25,7 @@ npx @beon-tech/ai-score logout       # forget the cached token
 | Harness      | Source scanned                                                              |
 | ------------ | --------------------------------------------------------------------------- |
 | Claude Code  | `~/.claude/projects/**/*.jsonl`                                             |
-| Codex CLI    | `~/.codex/sessions/**/*.jsonl` (+ `archived_sessions`)                      |
+| Codex        | `~/.codex/sessions/**/*.jsonl` (+ `archived_sessions`)                      |
 | Cursor CLI   | `~/.cursor/chats/**/store.db` (`node:sqlite`)                               |
 | Cursor (app) | Cursor's `globalStorage/state.vscdb` and `workspaceStorage` (`node:sqlite`) |
 | OpenCode     | `~/.local/share/opencode/opencode.db` (`node:sqlite`)                       |
@@ -33,6 +33,9 @@ npx @beon-tech/ai-score logout       # forget the cached token
 
 Sources marked `node:sqlite` need Node ≥ 22.5; on older Node those harnesses
 report a `skippedReason` and the rest of the scan proceeds.
+
+Claude Code and Codex share these transcript stores between their CLI and
+desktop apps, so sessions created in either interface are included.
 
 Cursor ships two products that share a name and nothing else, so they report as
 two harnesses — `cursor-cli` and `cursor-ide`. They record different things:
