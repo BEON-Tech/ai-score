@@ -22,14 +22,16 @@ npx @beon-tech/ai-score logout       # forget the cached token
 
 ## Supported harnesses
 
-| Harness      | Source scanned                                                              |
-| ------------ | --------------------------------------------------------------------------- |
-| Claude Code  | `~/.claude/projects/**/*.jsonl`                                             |
-| Codex        | `~/.codex/sessions/**/*.jsonl` (+ `archived_sessions`)                      |
-| Cursor CLI   | `~/.cursor/chats/**/store.db` (`node:sqlite`)                               |
-| Cursor (app) | Cursor's `globalStorage/state.vscdb` and `workspaceStorage` (`node:sqlite`) |
-| OpenCode     | `~/.local/share/opencode/opencode.db` (`node:sqlite`)                       |
-| pi           | `~/.pi/agent/sessions/**/*.jsonl`                                           |
+| Harness           | Source scanned                                                              |
+| ----------------- | --------------------------------------------------------------------------- |
+| Claude Code       | `~/.claude/projects/**/*.jsonl`                                             |
+| Codex             | `~/.codex/sessions/**/*.jsonl` (+ `archived_sessions`)                      |
+| Copilot CLI       | `~/.copilot/session-state/*/events.jsonl`                                   |
+| Copilot (VS Code) | VS Code's `workspaceStorage/*/chatSessions/*.json` (stable + Insiders)      |
+| Cursor CLI        | `~/.cursor/chats/**/store.db` (`node:sqlite`)                               |
+| Cursor (app)      | Cursor's `globalStorage/state.vscdb` and `workspaceStorage` (`node:sqlite`) |
+| OpenCode          | `~/.local/share/opencode/opencode.db` (`node:sqlite`)                       |
+| pi                | `~/.pi/agent/sessions/**/*.jsonl`                                           |
 
 Sources marked `node:sqlite` need Node ≥ 22.5; on older Node those harnesses
 report a `skippedReason` and the rest of the scan proceeds.
@@ -43,6 +45,13 @@ the desktop app tracks tokens, cost and per-session diff stats, while the CLI's
 session store keeps neither timestamps per message nor token counts, so
 `cursor-cli` sessions carry a model id with an empty usage bucket and no
 `longestTurnMs`.
+
+GitHub Copilot splits the same way into `copilot-cli` and `copilot-ide`. The
+CLI's event log only records token totals and diff stats in its shutdown
+event, so a session that crashed or is still open reports an empty usage
+bucket. VS Code's chat files store prompt/completion token counts but almost
+never cache reads, and no tool exit codes at all — a command's outcome there
+is only as knowable as the persisted result details make it.
 
 Harness data is read-only — the CLI never modifies it. The one thing it writes
 outside of `--out` is your access token, cached in
@@ -108,8 +117,8 @@ whoami              print the account this machine submits as
 
 ```
 --days <n>          look-back window in days (default: 180)
---harness <names>   comma-separated subset: claude-code,codex,cursor-cli,
-                    cursor-ide,opencode,pi
+--harness <names>   comma-separated subset: claude-code,codex,copilot-cli,
+                    copilot-ide,cursor-cli,cursor-ide,opencode,pi
 --url <url>         ai-score server (default: $AI_SCORE_URL or
                     https://ai-score.beon.tech)
 --no-browser        print the login URL instead of opening a browser

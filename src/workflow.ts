@@ -74,7 +74,12 @@ const MUTATION_TOOLS = new Set([
   "create_file",
   "edit",
   "edit_file",
+  // VS Code Copilot's editing tools, as normalized by the copilot-ide adapter.
+  "insert_edit",
+  "insert_edit_into_file",
   "multiedit",
+  "replace_string",
+  "replace_string_in_file",
   "search_replace",
   "str_replace",
   "str_replace_editor",
@@ -88,6 +93,7 @@ const SHELL_TOOLS = new Set([
   "exec_command",
   "local_shell",
   "run_command",
+  "run_in_terminal",
   "run_terminal_cmd",
   "shell",
   "terminal",
@@ -98,14 +104,23 @@ const OBSERVATION_TOOLS = new Set([
   "enterplanmode",
   "enterworktree",
   "exitplanmode",
+  // `fetch` and `view` are Copilot CLI's web fetch and file reader; the rest
+  // of the copilot names are VS Code's search/read/diagnostics tools.
+  "fetch",
+  "fetch_webpage",
+  "file_search",
+  "get_errors",
   "glob",
   "grep",
+  "grep_search",
   "list",
+  "list_dir",
   "ls",
   "question",
   "read",
   "read_file",
   "search",
+  "semantic_search",
   "sendmessage",
   "skill",
   "taskcreate",
@@ -113,9 +128,11 @@ const OBSERVATION_TOOLS = new Set([
   "taskoutput",
   "taskstop",
   "taskupdate",
+  "todos",
   "todowrite",
   "toolsearch",
   "update_plan",
+  "view",
   // codex's wait resolves a detached script; the script's own exec event is
   // what carries the uncertainty, so waiting on it observes, not changes.
   "wait",
@@ -761,11 +778,14 @@ export class WorkflowTracker {
     const lastSuccessfulMutation = events.findLastIndex(
       (event) => event.kind === "mutation" && event.outcome === "success",
     );
+    // A denied or cancelled call never ran, so whatever it might have changed,
+    // it didn't — `not-run` events cannot be the last change.
     const lastUncertainChange = events.findLastIndex(
       (event) =>
-        (event.kind === "mutation" && event.outcome === "unknown") ||
-        event.kind === "unknown-shell" ||
-        event.kind === "unknown-tool",
+        event.outcome !== "not-run" &&
+        ((event.kind === "mutation" && event.outcome === "unknown") ||
+          event.kind === "unknown-shell" ||
+          event.kind === "unknown-tool"),
     );
     const lastChangeBoundary = Math.max(lastSuccessfulMutation, lastUncertainChange);
 

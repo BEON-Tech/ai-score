@@ -53,8 +53,8 @@ you sign in as.
 
 Options
   --days <n>          look-back window in days (default: 180)
-  --harness <names>   comma-separated subset: claude-code,codex,cursor-cli,
-                      cursor-ide,opencode,pi
+  --harness <names>   comma-separated subset: claude-code,codex,copilot-cli,
+                      copilot-ide,cursor-cli,cursor-ide,opencode,pi
   --url <url>         ai-score server (default: $AI_SCORE_URL or
                       ${DEFAULT_BASE_URL})
   --no-browser        never open a browser — print login and report URLs only

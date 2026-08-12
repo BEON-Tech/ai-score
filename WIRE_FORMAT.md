@@ -73,17 +73,17 @@ immediately discarded and never serialized.
 
 ## `HarnessReport`
 
-| Field              | Type                                                                           | Meaning                                                                       |
-| ------------------ | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| `harness`          | `claude-code` \| `codex` \| `cursor-cli` \| `cursor-ide` \| `opencode` \| `pi` |                                                                               |
-| `detected`         | boolean                                                                        | whether the harness's data directory exists                                   |
-| `dataPath`         | string                                                                         | fixed, well-known location that was scanned (e.g. `~/.claude/projects`)       |
-| `latestVersion`    | string \| null                                                                 | most recent harness version seen in the data                                  |
-| `sessionsScanned`  | number                                                                         | sessions on disk (all time)                                                   |
-| `sessionsIncluded` | number                                                                         | sessions inside the window                                                    |
-| `parseErrors`      | number                                                                         | records that failed to parse and were skipped                                 |
-| `skippedReason`    | string \| null                                                                 | why a detected harness produced no data (e.g. Node too old for `node:sqlite`) |
-| `sessions`         | `SessionRecord[]`                                                              |                                                                               |
+| Field              | Type                                                                                                             | Meaning                                                                       |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `harness`          | `claude-code` \| `codex` \| `copilot-cli` \| `copilot-ide` \| `cursor-cli` \| `cursor-ide` \| `opencode` \| `pi` |                                                                               |
+| `detected`         | boolean                                                                                                          | whether the harness's data directory exists                                   |
+| `dataPath`         | string                                                                                                           | fixed, well-known location that was scanned (e.g. `~/.claude/projects`)       |
+| `latestVersion`    | string \| null                                                                                                   | most recent harness version seen in the data                                  |
+| `sessionsScanned`  | number                                                                                                           | sessions on disk (all time)                                                   |
+| `sessionsIncluded` | number                                                                                                           | sessions inside the window                                                    |
+| `parseErrors`      | number                                                                                                           | records that failed to parse and were skipped                                 |
+| `skippedReason`    | string \| null                                                                                                   | why a detected harness produced no data (e.g. Node too old for `node:sqlite`) |
+| `sessions`         | `SessionRecord[]`                                                                                                |                                                                               |
 
 ## `SessionRecord`
 

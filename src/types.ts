@@ -5,7 +5,15 @@
  * different fields, so they report as different harnesses rather than as one
  * blurred row.
  */
-export type HarnessName = "claude-code" | "codex" | "cursor-cli" | "cursor-ide" | "opencode" | "pi";
+export type HarnessName =
+  | "claude-code"
+  | "codex"
+  | "copilot-cli"
+  | "copilot-ide"
+  | "cursor-cli"
+  | "cursor-ide"
+  | "opencode"
+  | "pi";
 
 export interface TokenUsage {
   input: number;
