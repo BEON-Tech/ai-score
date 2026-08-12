@@ -69,6 +69,7 @@ function parseWorkflow(value: unknown): ScoreWorkflow | null {
     status: value["status"],
     scoringVersion: value["scoringVersion"],
     reasonCodes,
+    confidence: isFiniteNumber(value["confidence"]) ? value["confidence"] : null,
     evidence,
   };
 }

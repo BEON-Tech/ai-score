@@ -19,7 +19,7 @@ const FULL_BODY = JSON.stringify({
   url: "https://score.example.com/submissions/6332871d-0f63-4973-8a46-a0803b534670",
   score: {
     total: 92,
-    version: 3,
+    version: 4,
     dimensions: {
       leverage: { score: 23.1, max: 25, signals: { toolCallsPerPrompt: 20.6 } },
       craft: dimension(13.2, 15),
@@ -32,8 +32,9 @@ const FULL_BODY = JSON.stringify({
     },
     workflow: {
       status: "scored",
-      scoringVersion: 3,
+      scoringVersion: 4,
       reasonCodes: [],
+      confidence: 1,
       evidence: {
         codingSessions: 12,
         unclassifiedSessions: 0,
@@ -55,7 +56,7 @@ describe("parseSubmission", () => {
     assert.equal(id, "6332871d-0f63-4973-8a46-a0803b534670");
     assert.equal(url, "https://score.example.com/submissions/6332871d-0f63-4973-8a46-a0803b534670");
     assert.equal(score.total, 92);
-    assert.equal(score.version, 3);
+    assert.equal(score.version, 4);
     assert.deepEqual(Object.keys(score.dimensions), [
       "leverage",
       "craft",
@@ -173,7 +174,7 @@ describe("renderScore", () => {
     assert.match(out, /O V E R A L L\s+S C O R E/);
     assert.match(out, /92 of 100/);
     assert.match(out, /exceptional/);
-    assert.match(out, /scoring v3/);
+    assert.match(out, /scoring v4/);
   });
 
   it("prints the workflow evidence as notes on the card", () => {
@@ -183,24 +184,25 @@ describe("renderScore", () => {
     assert.match(out, /2 failures recovered · 4 deliveries observed/);
   });
 
-  it("explains zeroed workflow dimensions when evidence was too thin", () => {
+  it("explains the confidence discount when evidence was too thin", () => {
     const out = plain(
       renderScore(
         {
-          total: 53,
-          version: 3,
-          dimensions: { leverage: dimension(22, 25), completion: dimension(0, 25) },
+          total: 68,
+          version: 4,
+          dimensions: { leverage: dimension(22, 25), completion: dimension(15, 25) },
           workflow: {
             status: "insufficient_evidence",
-            scoringVersion: 3,
+            scoringVersion: 4,
             reasonCodes: ["MIN_OBSERVABLE_SESSIONS"],
+            confidence: 0.6,
             evidence: { ...score.workflow.evidence, observableSessions: 3, coverage: 1 },
           },
         },
         null,
       ),
     );
-    assert.match(out, /verification, completion and autonomy score 0/);
+    assert.match(out, /workflow points scored at 60% confidence/);
     assert.match(out, /at least 5 observable coding sessions/);
   });
 

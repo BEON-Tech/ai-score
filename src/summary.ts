@@ -402,8 +402,8 @@ export function renderScore(
   url: string | null = null,
 ): string {
   // The evidence behind the workflow dimensions, set as the card's notes. An
-  // insufficient result explains why those dimensions read zero — the points
-  // are forfeited until a scan carries enough observable evidence.
+  // insufficient result explains the confidence discount — thin evidence
+  // earns proportionally fewer workflow points until a scan carries more.
   const notes: string[] = [];
   if (score.workflow) {
     const evidence = score.workflow.evidence;
@@ -417,7 +417,12 @@ export function renderScore(
         `${evidence.recoveredFailures} failures recovered · ${evidence.deliveriesObserved} deliveries observed`,
       );
     } else {
-      notes.push("workflow evidence too thin — verification, completion and autonomy score 0");
+      const confidence = score.workflow.confidence;
+      notes.push(
+        confidence === null
+          ? "workflow evidence too thin — workflow points discounted"
+          : `workflow evidence too thin — workflow points scored at ${Math.round(confidence * 100)}% confidence`,
+      );
       for (const reason of score.workflow.reasonCodes) {
         notes.push(WORKFLOW_REASON_COPY[reason] ?? reason);
       }

@@ -124,14 +124,16 @@ export interface WorkflowEvidenceSummary {
 }
 
 /**
- * The evidence behind the score's workflow dimensions. "scored" means those
- * dimensions are in the breakdown; "insufficient_evidence" means the server
- * dropped them and rescaled the rest, for the listed reasons.
+ * The evidence behind the score's workflow dimensions. "scored" means the
+ * evidence earned full confidence; "insufficient_evidence" means the server
+ * discounted those dimensions' points by `confidence`, for the listed reasons.
  */
 export interface ScoreWorkflow {
   status: "scored" | "insufficient_evidence";
   scoringVersion: number;
   reasonCodes: string[];
+  /** Multiplier the workflow points were scored at, 0..1. Null on old servers. */
+  confidence: number | null;
   evidence: WorkflowEvidenceSummary;
 }
 
