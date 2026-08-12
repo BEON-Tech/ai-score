@@ -303,6 +303,13 @@ describe("renderReport", () => {
     assert.match(out, /needs Node >= 22\.5/);
   });
 
+  it("explains sessions outside the window instead of showing a bare zero", () => {
+    const out = plain(
+      renderReport(payload([report("copilot-ide", { sessionsScanned: 261, sessionsIncluded: 0 })])),
+    );
+    assert.match(out, /copilot-ide — 261 sessions not counted: older than the 30-day window/);
+  });
+
   it("notes unreadable records without hiding them", () => {
     const out = plain(renderReport(payload([report("codex", { parseErrors: 4 })])));
     assert.match(out, /4 unreadable records/);

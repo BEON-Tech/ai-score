@@ -20,7 +20,7 @@ describe("send", () => {
     try {
       await assert.rejects(
         send(`http://127.0.0.1:${port}/api/v1/submissions`, PAYLOAD, "token"),
-        /--days/,
+        /--harness/,
       );
     } finally {
       server.close();

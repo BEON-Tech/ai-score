@@ -148,7 +148,7 @@ export async function send(
   if (res.status === 413) {
     throw new Error(
       "upload rejected: the report is larger than the server accepts (HTTP 413). " +
-        "Retry with a narrower window, e.g. --days 90.",
+        "Retry with fewer harnesses, e.g. --harness claude-code.",
     );
   }
   if (!res.ok) {

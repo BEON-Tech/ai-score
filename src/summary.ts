@@ -259,6 +259,15 @@ export function renderReport(payload: Payload): string {
         `${report.harness} — ${grouped(report.parseErrors)} unreadable records, skipped and counted`,
       );
     }
+    // A detected harness whose sessions all fell outside the window used to
+    // show a bare zero and read as a parser bug — this is the note that would
+    // have answered that support thread before it started.
+    const outside = report.sessionsScanned - report.sessionsIncluded - report.parseErrors;
+    if (report.detected && !report.skippedReason && outside > 0) {
+      notes.push(
+        `${report.harness} — ${grouped(outside)} sessions not counted: older than the ${payload.window.days}-day window, or empty`,
+      );
+    }
   }
   if (notes.length > 0) {
     out.push("");

@@ -51,7 +51,6 @@ and message text are never sent. Submissions are attributed to the account
 you sign in as.
 
 Options
-  --days <n>          look-back window in days (default: 180)
   --harness <names>   comma-separated subset: claude-code,codex,copilot-cli,
                       copilot-ide,cursor-cli,cursor-ide,opencode,pi
   --url <url>         ai-score server (default: $AI_SCORE_URL or
@@ -88,10 +87,6 @@ async function main(): Promise<void> {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {
-      // Six months: wide enough that a default run captures the history
-      // needed for eligibility (5 observable sessions, 30% coverage) and
-      // re-covers sessions a narrower window scored under an old classifier.
-      days: { type: "string", default: "180" },
       harness: { type: "string", multiple: true },
       url: { type: "string" },
       endpoint: { type: "string" },
@@ -138,10 +133,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  const days = Number(values.days);
-  if (!Number.isFinite(days) || days <= 0 || days > 365) {
-    throw new Error(`--days must be a number between 1 and 365, got "${values.days}"`);
-  }
+  // Not an option any more, on purpose: the window used to be user-chosen,
+  // which made count signals depend on how much history you asked to upload.
+  // The CLI now always collects a full year and the server scores a fixed
+  // trailing window over it, so every submission is like-for-like.
+  const days = 365;
 
   const known = adapters.map((a) => a.harness);
   const requested = values.harness
