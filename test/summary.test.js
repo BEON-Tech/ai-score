@@ -183,13 +183,13 @@ describe("renderScore", () => {
     assert.match(out, /2 failures recovered · 4 deliveries observed/);
   });
 
-  it("explains missing workflow dimensions without inventing a zero", () => {
+  it("explains zeroed workflow dimensions when evidence was too thin", () => {
     const out = plain(
       renderScore(
         {
-          total: 88,
+          total: 53,
           version: 3,
-          dimensions: { leverage: dimension(22, 41.7) },
+          dimensions: { leverage: dimension(22, 25), completion: dimension(0, 25) },
           workflow: {
             status: "insufficient_evidence",
             scoringVersion: 3,
@@ -200,9 +200,8 @@ describe("renderScore", () => {
         null,
       ),
     );
-    assert.match(out, /scored over the usage dimensions only/);
+    assert.match(out, /verification, completion and autonomy score 0/);
     assert.match(out, /at least 5 observable coding sessions/);
-    assert.doesNotMatch(out, /0 of 100/);
   });
 
   it("lists every dimension with its figure", () => {
