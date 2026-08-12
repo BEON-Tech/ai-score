@@ -57,6 +57,13 @@ export interface WorkflowEvidence {
   codeChange: WorkflowCodeChange;
   sequenceKnown: boolean;
   finalVerification: WorkflowVerification;
+  /**
+   * True when the session's final change went unchecked (`finalVerification:
+   * "not-run"`) but a check *did* pass after an earlier change — the
+   * edit → tests pass → tweak → stop pattern. Additive field; servers that
+   * predate it ignore it, and old payloads read as null.
+   */
+  stalePass: boolean | null;
   autonomousVerifiedChange: boolean | null;
   recoveredFromFailure: boolean | null;
   delivery: WorkflowDelivery;

@@ -764,6 +764,7 @@ export class WorkflowTracker {
     else if (mutations.some((event) => event.outcome === "unknown")) codeChange = "unknown";
 
     let finalVerification: WorkflowVerification = "unknown";
+    let stalePass: boolean | null = null;
     let autonomousVerifiedChange: boolean | null = null;
     let recoveredFromFailure: boolean | null = null;
     const verificationKinds = [
@@ -840,6 +841,14 @@ export class WorkflowTracker {
         autonomousVerifiedChange = false;
       }
 
+      // The edit → tests pass → tweak → stop pattern: the final change is
+      // honestly unverified, but the work was not unchecked — a check passed
+      // after an earlier change. Reported separately so the scorer can price
+      // it between "verified at the end" and "never verified".
+      if (finalVerification === "not-run") {
+        stalePass = allChecks.some(({ event }) => event.outcome === "success");
+      }
+
       const failedChecks = allChecks.filter(({ event }) => event.outcome === "failure");
       if (failedChecks.length > 0) {
         recoveredFromFailure = failedChecks.some((failed) => {
@@ -876,6 +885,7 @@ export class WorkflowTracker {
       codeChange,
       sequenceKnown: this.sequenceKnown,
       finalVerification,
+      stalePass,
       autonomousVerifiedChange,
       recoveredFromFailure,
       delivery,

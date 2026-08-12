@@ -144,6 +144,7 @@ export function newSessionRecord(id: string, projectId: string): SessionRecord {
       codeChange: "none",
       sequenceKnown: false,
       finalVerification: "unknown",
+      stalePass: null,
       autonomousVerifiedChange: null,
       recoveredFromFailure: null,
       delivery: "unknown",

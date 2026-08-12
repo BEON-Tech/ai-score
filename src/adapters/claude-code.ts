@@ -26,6 +26,39 @@ function messageText(message: any): string {
     .join("\n");
 }
 
+const lineCount = (value: unknown): number =>
+  typeof value === "string" && value.length > 0 ? value.split("\n").length : 0;
+
+/**
+ * Lines in/out implied by an editing tool's arguments, or null when the call
+ * isn't an edit (or carries nothing to measure). Exported for the tests.
+ */
+export function editDiff(name: string, input: unknown): { adds: number; dels: number } | null {
+  if (!input || typeof input !== "object") return null;
+  const record = input as Record<string, unknown>;
+  if (name === "Edit") {
+    const adds = lineCount(record["new_string"]);
+    const dels = lineCount(record["old_string"]);
+    return adds > 0 || dels > 0 ? { adds, dels } : null;
+  }
+  if (name === "MultiEdit") {
+    const edits = Array.isArray(record["edits"]) ? record["edits"] : [];
+    let adds = 0;
+    let dels = 0;
+    for (const edit of edits) {
+      if (!edit || typeof edit !== "object") continue;
+      adds += lineCount((edit as Record<string, unknown>)["new_string"]);
+      dels += lineCount((edit as Record<string, unknown>)["old_string"]);
+    }
+    return adds > 0 || dels > 0 ? { adds, dels } : null;
+  }
+  if (name === "Write") {
+    const adds = lineCount(record["content"]);
+    return adds > 0 ? { adds, dels: 0 } : null;
+  }
+  return null;
+}
+
 function isToolResultCarrier(record: any): boolean {
   if (record.toolUseResult !== undefined) return true;
   const content = record.message?.content;
@@ -57,6 +90,15 @@ async function parseSession(
   let mcpCalls = 0;
   let turnStart: number | null = null;
   let turnTools = 0;
+  // Claude Code records no diff summaries, but the Edit/Write arguments it
+  // does record imply one: lines in `old_string` out, lines in `new_string`
+  // in. Sizes are staged per tool_use id and only counted when the paired
+  // result succeeds — a denied or failed edit changed nothing. An estimate
+  // (a `replace_all` counts once; Write can't see what it overwrote), but it
+  // turns the "how much shipped" signal from structurally blank into real.
+  const pendingDiff = new Map<string, { adds: number; dels: number }>();
+  let additions: number | null = null;
+  let deletions: number | null = null;
   const workflow = new WorkflowTracker({
     sequenceKnown: true,
     commandObservation: true,
@@ -127,12 +169,17 @@ async function parseSession(
                     .map((entry: any) => (typeof entry?.text === "string" ? entry.text : ""))
                     .join("\n")
                 : null;
-          workflow.toolResult(
-            outcome === "unknown" && block.is_error !== true ? "success" : outcome,
-            typeof block.tool_use_id === "string" ? block.tool_use_id : null,
-            null,
-            text,
-          );
+          const settled = outcome === "unknown" && block.is_error !== true ? "success" : outcome;
+          const callId = typeof block.tool_use_id === "string" ? block.tool_use_id : null;
+          const staged = callId !== null ? pendingDiff.get(callId) : undefined;
+          if (staged) {
+            pendingDiff.delete(callId!);
+            if (settled === "success") {
+              additions = (additions ?? 0) + staged.adds;
+              deletions = (deletions ?? 0) + staged.dels;
+            }
+          }
+          workflow.toolResult(settled, callId, null, text);
         }
         if (typeof r.permissionMode === "string") permissionModes.add(r.permissionMode);
         if (r.toolDenialKind !== undefined && r.toolDenialKind !== null) s.counts.toolDenials++;
@@ -165,6 +212,10 @@ async function parseSession(
           if (block?.type !== "tool_use" || typeof block.name !== "string") continue;
           s.counts.toolCalls++;
           s.tools[block.name] = (s.tools[block.name] ?? 0) + 1;
+          if (typeof block.id === "string") {
+            const diff = editDiff(block.name, block.input);
+            if (diff) pendingDiff.set(block.id, diff);
+          }
           workflow.toolCall(
             block.name,
             block.input,
@@ -192,6 +243,9 @@ async function parseSession(
 
   s.startedAt = toIso(firstTs);
   s.endedAt = toIso(lastTs);
+  // Null when no edit succeeded — "nothing measured", never "measured zero".
+  s.outcome.additions = additions;
+  s.outcome.deletions = deletions;
   s.outcome.distinctGitBranches = branches.size;
   s.flags = {
     modes: [...modes].sort(),

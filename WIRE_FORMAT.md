@@ -121,6 +121,7 @@ Present in reports produced by clients with workflow classification support:
 | `codeChange`               | `success` \| `failure` \| `none` \| `unknown`  | whether a code-mutating tool produced an observable change              |
 | `sequenceKnown`            | boolean                                        | whether native records preserved reliable event order                   |
 | `finalVerification`        | `passed` \| `failed` \| `not-run` \| `unknown` | state of checks after the final successful code change                  |
+| `stalePass`                | boolean \| null                                | final change unchecked, but a check passed after an earlier change      |
 | `autonomousVerifiedChange` | boolean \| null                                | whether final change and passing check occurred in one human turn       |
 | `recoveredFromFailure`     | boolean \| null                                | whether a failed check was followed by another change and passing check |
 | `delivery`                 | `observed` \| `not-observed` \| `unknown`      | successful commit/PR evidence visible inside the harness                |

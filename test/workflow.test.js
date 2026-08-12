@@ -6,6 +6,7 @@ import {
   codexDetachedIdFromOutput,
   codexOutcome,
 } from "../dist/adapters/codex.js";
+import { editDiff } from "../dist/adapters/claude-code.js";
 import { toolOutcome, verificationVerdict, WorkflowTracker } from "../dist/workflow.js";
 
 const tracker = () =>
@@ -27,6 +28,7 @@ describe("workflow evidence", () => {
       codeChange: "success",
       sequenceKnown: true,
       finalVerification: "passed",
+      stalePass: null,
       autonomousVerifiedChange: true,
       recoveredFromFailure: null,
       delivery: "not-observed",
@@ -34,14 +36,26 @@ describe("workflow evidence", () => {
     });
   });
 
-  it("invalidates a passing check when another edit follows it", () => {
+  it("invalidates a passing check when another edit follows it, but reports the stale pass", () => {
     const t = tracker();
     t.humanTurn();
     t.toolCall("Edit", {}, "edit-1", "success");
     t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
     t.toolCall("Edit", {}, "edit-2", "success");
 
-    assert.equal(t.finish().finalVerification, "not-run");
+    const evidence = t.finish();
+    assert.equal(evidence.finalVerification, "not-run");
+    assert.equal(evidence.stalePass, true);
+  });
+
+  it("does not call a never-checked session a stale pass", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit-1", "success");
+
+    const evidence = t.finish();
+    assert.equal(evidence.finalVerification, "not-run");
+    assert.equal(evidence.stalePass, false);
   });
 
   it("does not let an agent memory note invalidate a passing check", () => {
@@ -620,5 +634,32 @@ describe("workflow evidence", () => {
     t.toolCall("Edit", {}, "edit", "success");
     t.toolCall("Bash", { command: secret }, "shell", "success");
     assert.doesNotMatch(JSON.stringify(t.finish()), /do-not-upload|private\/project/);
+  });
+});
+
+describe("claude-code edit diff estimates", () => {
+  it("counts lines from Edit arguments", () => {
+    assert.deepEqual(editDiff("Edit", { old_string: "a\nb", new_string: "a\nb\nc" }), {
+      adds: 3,
+      dels: 2,
+    });
+  });
+
+  it("sums MultiEdit entries and reads Write content", () => {
+    assert.deepEqual(
+      editDiff("MultiEdit", {
+        edits: [
+          { old_string: "x", new_string: "y" },
+          { old_string: "", new_string: "1\n2" },
+        ],
+      }),
+      { adds: 3, dels: 1 },
+    );
+    assert.deepEqual(editDiff("Write", { content: "1\n2\n3" }), { adds: 3, dels: 0 });
+  });
+
+  it("returns null for non-edit tools and empty edits", () => {
+    assert.equal(editDiff("Read", { file_path: "x" }), null);
+    assert.equal(editDiff("Edit", { old_string: "", new_string: "" }), null);
   });
 });
