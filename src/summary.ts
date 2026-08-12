@@ -1,4 +1,4 @@
-import type { HarnessReport, Payload, Score, TokenUsage, VerifiedWorkflowResult } from "./types.js";
+import type { HarnessReport, Payload, Score, TokenUsage } from "./types.js";
 import {
   bar,
   blockText,
@@ -112,7 +112,7 @@ export function renderHeader(info: HeaderInfo): string {
 
   const beside = [
     `${c.text("ai-score")} ${c.faint(info.version)}`,
-    c.muted("verified workflow report"),
+    c.muted("overall score report"),
     "",
   ];
   for (const [i, row] of WORDMARK.entries()) {
@@ -299,17 +299,14 @@ function band(total: number, max: number): { label: string; tone: Paint } {
 }
 
 /** What each dimension actually measures, in the engineer's terms. */
-const USAGE_DIMENSION_COPY: Record<string, string> = {
+const DIMENSION_COPY: Record<string, string> = {
   leverage: "how much work per prompt",
+  completion: "final check passed",
   craft: "clean runs, few retries",
   output: "shipped, not just chatted",
+  verification: "checks after code changes",
   customization: "MCP, hooks, subagents",
   efficiency: "cache reuse, multi-harness",
-};
-
-const WORKFLOW_DIMENSION_COPY: Record<string, string> = {
-  verification: "checks after code changes",
-  completion: "final check passed",
   autonomy: "changed and checked in one turn",
 };
 
@@ -392,27 +389,6 @@ function renderScoreCard(
   return out.join("\n") + "\n";
 }
 
-export function renderScore(
-  score: Score,
-  submissionId: string | null,
-  verifiedWorkflowAvailable = false,
-  url: string | null = null,
-): string {
-  return renderScoreCard(
-    score,
-    submissionId,
-    "usage profile",
-    USAGE_DIMENSION_COPY,
-    // Read "determines rank" until the site stopped publishing a ranking. The
-    // card above is still the score that counts, but nobody running this can
-    // see a rank any more, so naming one pointed at a page that isn't there.
-    verifiedWorkflowAvailable
-      ? ["diagnostic only — Verified Workflow is the score that counts"]
-      : [],
-    url,
-  );
-}
-
 const WORKFLOW_REASON_COPY: Record<string, string> = {
   NO_CODING_SESSIONS: "no observable coding sessions in this run",
   MISSING_WORKFLOW_EVIDENCE: "some sessions need the latest supported classifier",
@@ -420,41 +396,34 @@ const WORKFLOW_REASON_COPY: Record<string, string> = {
   LOW_OBSERVABILITY: "at least 30% of coding sessions must carry reliable evidence",
 };
 
-export function renderVerifiedWorkflow(result: VerifiedWorkflowResult): string {
-  const evidence = result.evidence;
-  const evidenceSessions = evidence.codingSessions + evidence.unclassifiedSessions;
-  const coverage = `${(evidence.coverage * 100).toFixed(1)}% coverage`;
-  if (result.status === "scored") {
-    return renderScoreCard(
-      {
-        total: result.total,
-        version: result.scoringVersion,
-        dimensions: result.dimensions,
-      },
-      null,
-      "verified workflow",
-      WORKFLOW_DIMENSION_COPY,
-      [
-        `${evidence.observableSessions} observable / ${evidenceSessions} evidence candidates · ${coverage}`,
-        `${evidence.codingSessions} coding · ${evidence.unclassifiedSessions} unclassified`,
-        `${evidence.recoveredFailures} failures recovered · ${evidence.deliveriesObserved} deliveries observed`,
-      ],
+export function renderScore(
+  score: Score,
+  submissionId: string | null,
+  url: string | null = null,
+): string {
+  // The evidence behind the workflow dimensions, set as the card's notes. An
+  // insufficient result explains why those dimensions are missing from the
+  // breakdown — the score above was rescaled over the rest, never zeroed.
+  const notes: string[] = [];
+  if (score.workflow) {
+    const evidence = score.workflow.evidence;
+    const evidenceSessions = evidence.codingSessions + evidence.unclassifiedSessions;
+    const coverage = `${(evidence.coverage * 100).toFixed(1)}% coverage`;
+    notes.push(
+      `${evidence.observableSessions} observable / ${evidenceSessions} evidence candidates · ${coverage}`,
     );
+    if (score.workflow.status === "scored") {
+      notes.push(
+        `${evidence.recoveredFailures} failures recovered · ${evidence.deliveriesObserved} deliveries observed`,
+      );
+    } else {
+      notes.push("workflow evidence too thin — scored over the usage dimensions only");
+      for (const reason of score.workflow.reasonCodes) {
+        notes.push(WORKFLOW_REASON_COPY[reason] ?? reason);
+      }
+    }
   }
-
-  const out = [
-    rule(),
-    "",
-    `${PAD}${c.faint(track("verified workflow"))}   ${c.warn("not scored")}`,
-  ];
-  out.push(
-    `${PAD}${c.muted(`${evidence.observableSessions} observable / ${evidenceSessions} evidence candidates · ${coverage}`)}`,
-  );
-  for (const reason of result.reasonCodes) {
-    out.push(`${PAD}${c.faint("⌐")} ${c.muted(WORKFLOW_REASON_COPY[reason] ?? reason)}`);
-  }
-  out.push("");
-  return out.join("\n") + "\n";
+  return renderScoreCard(score, submissionId, "overall score", DIMENSION_COPY, notes, url);
 }
 
 /** Trims a trailing ".0" so whole scores read as "92", not "92.0". */

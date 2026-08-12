@@ -26,7 +26,6 @@ import {
   renderReport,
   renderScore,
   renderUploaded,
-  renderVerifiedWorkflow,
   scanDetail,
 } from "./summary.js";
 import type { HarnessName, Payload } from "./types.js";
@@ -267,13 +266,8 @@ async function main(): Promise<void> {
     const { status, result } = await send(target.submissionsUrl, payload, token);
     // The server returns a per-dimension breakdown; render it rather than
     // printing the first 200 characters of the response object.
-    if (result.verifiedWorkflow) {
-      process.stderr.write(renderVerifiedWorkflow(result.verifiedWorkflow));
-    }
     if (result.score) {
-      process.stderr.write(
-        renderScore(result.score, result.id, result.verifiedWorkflow !== null, result.url),
-      );
+      process.stderr.write(renderScore(result.score, result.id, result.url));
     } else process.stderr.write(renderUploaded(status, result.id, result.url));
 
     // Offer to open the full report, but only in a session that is already

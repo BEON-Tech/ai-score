@@ -3,7 +3,9 @@
 CLI that measures how an engineer uses AI coding tools. It scans the session
 data that coding harnesses already keep on your machine, derives privacy-safe
 edit/check evidence, and submits it to Beon's scoring service. The server
-returns a Verified Workflow score plus a separate Usage Profile.
+returns a single Overall Score: eight dimensions covering verified workflow
+(verification, completion, autonomy) and tool usage (leverage, craft, output,
+customization, efficiency).
 
 ```sh
 npx @beon-tech/ai-score              # sign in if needed, scan, summarize, confirm, upload
@@ -199,9 +201,10 @@ The CLI POSTs the payload as JSON to `<server>/api/v1/submissions` with an
 403 means the token is dead: the CLI drops it and tells the engineer to log in
 again. The ingest endpoint validates `schema === "beon.ai-score.v2"`, resolves
 the submitter from the token (**never** from the payload), stores the raw
-submission, and computes both results server-side so their weights can evolve
-independently of the client. The response keeps `score` as the Usage Profile for
-older clients and adds `verifiedWorkflow` for current clients.
+submission, and computes the score server-side so its weights can evolve
+independently of the client. The response's `score` carries the merged Overall
+Score; its `workflow` field holds the evidence behind the workflow dimensions,
+which older clients simply ignore.
 
 Auth endpoints used, all under `<server>/api/auth`:
 `POST /device/code`, `POST /device/token`, `GET /get-session`.

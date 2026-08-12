@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseSubmission } from "../dist/send.js";
-import {
-  renderReport,
-  renderScore,
-  renderUploaded,
-  renderVerifiedWorkflow,
-} from "../dist/summary.js";
+import { renderReport, renderScore, renderUploaded } from "../dist/summary.js";
 import { blockText, compact, padStart, vlen } from "../dist/ui.js";
 
 /**
@@ -24,56 +19,56 @@ const FULL_BODY = JSON.stringify({
   url: "https://score.example.com/submissions/6332871d-0f63-4973-8a46-a0803b534670",
   score: {
     total: 92,
-    version: 1,
+    version: 3,
     dimensions: {
-      leverage: { score: 55.4, max: 60, signals: { toolCallsPerPrompt: 20.6 } },
-      craft: dimension(15.8, 18),
+      leverage: { score: 23.1, max: 25, signals: { toolCallsPerPrompt: 20.6 } },
+      craft: dimension(13.2, 15),
       output: dimension(9.1, 10),
-      customization: dimension(6.6, 7),
+      customization: dimension(4.7, 5),
       efficiency: dimension(5, 5),
+      verification: { score: 9, max: 10, signals: { attempted: 9, observable: 10 } },
+      completion: { score: 20, max: 25, signals: { passed: 8, observable: 10 } },
+      autonomy: { score: 3, max: 5, signals: { autonomous: 6, observable: 10 } },
     },
-  },
-  verifiedWorkflow: {
-    status: "scored",
-    scoringVersion: 1,
-    total: 80,
-    dimensions: {
-      verification: { score: 18, max: 20, signals: { attempted: 9, eligible: 10 } },
-      completion: { score: 56, max: 70, signals: { passed: 8, eligible: 10 } },
-      autonomy: { score: 6, max: 10, signals: { autonomous: 6, eligible: 10 } },
-    },
-    evidence: {
-      codingSessions: 12,
-      unclassifiedSessions: 0,
-      observableSessions: 10,
-      coverage: 10 / 12,
-      checksAttempted: 9,
-      verifiedCompletions: 8,
-      autonomousCompletions: 6,
-      recoveredFailures: 2,
-      deliveriesObserved: 4,
+    workflow: {
+      status: "scored",
+      scoringVersion: 3,
+      reasonCodes: [],
+      evidence: {
+        codingSessions: 12,
+        unclassifiedSessions: 0,
+        observableSessions: 10,
+        coverage: 10 / 12,
+        checksAttempted: 9,
+        verifiedCompletions: 8,
+        autonomousCompletions: 6,
+        recoveredFailures: 2,
+        deliveriesObserved: 4,
+      },
     },
   },
 });
 
 describe("parseSubmission", () => {
   it("reads id and every dimension out of a well-formed response", () => {
-    const { id, score, verifiedWorkflow, url } = parseSubmission(FULL_BODY);
+    const { id, score, url } = parseSubmission(FULL_BODY);
     assert.equal(id, "6332871d-0f63-4973-8a46-a0803b534670");
     assert.equal(url, "https://score.example.com/submissions/6332871d-0f63-4973-8a46-a0803b534670");
     assert.equal(score.total, 92);
-    assert.equal(score.version, 1);
+    assert.equal(score.version, 3);
     assert.deepEqual(Object.keys(score.dimensions), [
       "leverage",
       "craft",
       "output",
       "customization",
       "efficiency",
+      "verification",
+      "completion",
+      "autonomy",
     ]);
     assert.equal(score.dimensions.leverage.signals.toolCallsPerPrompt, 20.6);
-    assert.equal(verifiedWorkflow.status, "scored");
-    assert.equal(verifiedWorkflow.total, 80);
-    assert.equal(verifiedWorkflow.evidence.observableSessions, 10);
+    assert.equal(score.workflow.status, "scored");
+    assert.equal(score.workflow.evidence.observableSessions, 10);
   });
 
   it("keeps dimensions the client has never heard of", () => {
@@ -92,13 +87,12 @@ describe("parseSubmission", () => {
     assert.deepEqual(parseSubmission("<html>502 Bad Gateway</html>"), {
       id: null,
       score: null,
-      verifiedWorkflow: null,
       url: null,
     });
   });
 
   it("returns nulls for JSON that is not an object", () => {
-    const empty = { id: null, score: null, verifiedWorkflow: null, url: null };
+    const empty = { id: null, score: null, url: null };
     assert.deepEqual(parseSubmission("[1,2,3]"), empty);
     assert.deepEqual(parseSubmission("null"), empty);
     assert.deepEqual(parseSubmission('"ok"'), empty);
@@ -108,9 +102,13 @@ describe("parseSubmission", () => {
     assert.deepEqual(parseSubmission('{"id":"abc","score":{"total":"nope"}}'), {
       id: "abc",
       score: null,
-      verifiedWorkflow: null,
       url: null,
     });
+  });
+
+  it("tolerates a score without workflow evidence, from an older server", () => {
+    const body = JSON.stringify({ id: "a", score: { total: 5, version: 2, dimensions: {} } });
+    assert.equal(parseSubmission(body).score.workflow, null);
   });
 
   // The url is printed and offered to a browser launcher, so anything but a
@@ -167,40 +165,44 @@ describe("parseSubmission", () => {
   });
 });
 
-describe("renderVerifiedWorkflow", () => {
-  const workflow = parseSubmission(FULL_BODY).verifiedWorkflow;
-
-  it("renders the inferred score, dimensions, and evidence coverage", () => {
-    const out = plain(renderVerifiedWorkflow(workflow));
-    assert.match(out, /V E R I F I E D\s+W O R K F L O W/);
-    assert.match(out, /80 of 100/);
-    assert.match(out, /10 observable \/ 12 evidence candidates/);
-    assert.match(out, /83\.3% coverage/);
-  });
-
-  it("explains an insufficient result without inventing a zero", () => {
-    const out = plain(
-      renderVerifiedWorkflow({
-        status: "insufficient_evidence",
-        scoringVersion: 1,
-        reasonCodes: ["MIN_OBSERVABLE_SESSIONS"],
-        evidence: { ...workflow.evidence, codingSessions: 3, observableSessions: 3, coverage: 1 },
-      }),
-    );
-    assert.match(out, /not scored/);
-    assert.match(out, /at least 5 observable coding sessions/);
-    assert.doesNotMatch(out, /0 of 100/);
-  });
-});
-
 describe("renderScore", () => {
   const score = parseSubmission(FULL_BODY).score;
 
   it("shows the total against the sum of the dimension maxima", () => {
     const out = plain(renderScore(score, null));
+    assert.match(out, /O V E R A L L\s+S C O R E/);
     assert.match(out, /92 of 100/);
     assert.match(out, /exceptional/);
-    assert.match(out, /scoring v1/);
+    assert.match(out, /scoring v3/);
+  });
+
+  it("prints the workflow evidence as notes on the card", () => {
+    const out = plain(renderScore(score, null));
+    assert.match(out, /10 observable \/ 12 evidence candidates/);
+    assert.match(out, /83\.3% coverage/);
+    assert.match(out, /2 failures recovered · 4 deliveries observed/);
+  });
+
+  it("explains missing workflow dimensions without inventing a zero", () => {
+    const out = plain(
+      renderScore(
+        {
+          total: 88,
+          version: 3,
+          dimensions: { leverage: dimension(22, 41.7) },
+          workflow: {
+            status: "insufficient_evidence",
+            scoringVersion: 3,
+            reasonCodes: ["MIN_OBSERVABLE_SESSIONS"],
+            evidence: { ...score.workflow.evidence, observableSessions: 3, coverage: 1 },
+          },
+        },
+        null,
+      ),
+    );
+    assert.match(out, /scored over the usage dimensions only/);
+    assert.match(out, /at least 5 observable coding sessions/);
+    assert.doesNotMatch(out, /0 of 100/);
   });
 
   it("lists every dimension with its figure", () => {
@@ -228,16 +230,9 @@ describe("renderScore", () => {
   });
 
   it("prints the view link instead of the bare id when the server sent one", () => {
-    const out = plain(
-      renderScore(score, "abc-123", false, "https://s.example.com/submissions/abc-123"),
-    );
+    const out = plain(renderScore(score, "abc-123", "https://s.example.com/submissions/abc-123"));
     assert.match(out, /full report\s+https:\/\/s\.example\.com\/submissions\/abc-123/);
     assert.doesNotMatch(out, /submission abc-123/);
-  });
-
-  it("only labels usage as secondary when the server returned workflow evidence", () => {
-    assert.doesNotMatch(plain(renderScore(score, null)), /diagnostic only/);
-    assert.match(plain(renderScore(score, null, true)), /the score that counts/);
   });
 
   it("bands the total by percentage, not by raw points", () => {

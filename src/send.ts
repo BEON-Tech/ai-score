@@ -2,8 +2,8 @@ import type {
   DimensionScore,
   Payload,
   Score,
+  ScoreWorkflow,
   SubmissionResult,
-  VerifiedWorkflowResult,
   WorkflowEvidenceSummary,
 } from "./types.js";
 
@@ -56,37 +56,19 @@ function parseEvidence(value: unknown): WorkflowEvidenceSummary | null {
   ) as unknown as WorkflowEvidenceSummary;
 }
 
-function parseWorkflow(value: unknown): VerifiedWorkflowResult | null {
+/** The workflow evidence riding inside the score object, since scoring v3. */
+function parseWorkflow(value: unknown): ScoreWorkflow | null {
   if (!isRecord(value) || !isFiniteNumber(value["scoringVersion"])) return null;
   const evidence = parseEvidence(value["evidence"]);
   if (!evidence) return null;
-  if (value["status"] === "insufficient_evidence" && Array.isArray(value["reasonCodes"])) {
-    return {
-      status: "insufficient_evidence",
-      scoringVersion: value["scoringVersion"],
-      reasonCodes: value["reasonCodes"].filter(
-        (reason): reason is string => typeof reason === "string",
-      ),
-      evidence,
-    };
-  }
-  if (
-    value["status"] !== "scored" ||
-    !isFiniteNumber(value["total"]) ||
-    !isRecord(value["dimensions"])
-  ) {
-    return null;
-  }
-  const dimensions: Record<string, DimensionScore> = {};
-  for (const [name, raw] of Object.entries(value["dimensions"])) {
-    const dimension = parseDimension(raw);
-    if (dimension) dimensions[name] = dimension;
-  }
+  if (value["status"] !== "scored" && value["status"] !== "insufficient_evidence") return null;
+  const reasonCodes = Array.isArray(value["reasonCodes"])
+    ? value["reasonCodes"].filter((reason): reason is string => typeof reason === "string")
+    : [];
   return {
-    status: "scored",
+    status: value["status"],
     scoringVersion: value["scoringVersion"],
-    total: value["total"],
-    dimensions,
+    reasonCodes,
     evidence,
   };
 }
@@ -100,7 +82,7 @@ function parseWorkflow(value: unknown): VerifiedWorkflowResult | null {
  * report a false negative.
  */
 export function parseSubmission(body: string): SubmissionResult {
-  const empty: SubmissionResult = { id: null, score: null, verifiedWorkflow: null, url: null };
+  const empty: SubmissionResult = { id: null, score: null, url: null };
   let root: unknown;
   try {
     root = JSON.parse(body);
@@ -111,10 +93,9 @@ export function parseSubmission(body: string): SubmissionResult {
 
   const id = typeof root["id"] === "string" ? root["id"] : null;
   const url = parseViewUrl(root["url"]);
-  const verifiedWorkflow = parseWorkflow(root["verifiedWorkflow"]);
   const raw = root["score"];
   if (!isRecord(raw) || !isFiniteNumber(raw["total"]) || !isRecord(raw["dimensions"])) {
-    return { id, score: null, verifiedWorkflow, url };
+    return { id, score: null, url };
   }
 
   const dimensions: Record<string, DimensionScore> = {};
@@ -127,8 +108,9 @@ export function parseSubmission(body: string): SubmissionResult {
     total: raw["total"],
     version: isFiniteNumber(raw["version"]) ? raw["version"] : 0,
     dimensions,
+    workflow: parseWorkflow(raw["workflow"]),
   };
-  return { id, score, verifiedWorkflow, url };
+  return { id, score, url };
 }
 
 /**

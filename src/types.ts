@@ -111,19 +111,6 @@ export interface DimensionScore {
   signals: Record<string, number>;
 }
 
-/**
- * The score the server computes and returns on upload.
- *
- * `dimensions` is deliberately an open record rather than the five keys the
- * server ships today: the scoring service deploys independently of this CLI, so
- * a new dimension must render as an extra row, not crash an old client.
- */
-export interface Score {
-  total: number;
-  version: number;
-  dimensions: Record<string, DimensionScore>;
-}
-
 export interface WorkflowEvidenceSummary {
   codingSessions: number;
   unclassifiedSessions: number;
@@ -136,26 +123,38 @@ export interface WorkflowEvidenceSummary {
   deliveriesObserved: number;
 }
 
-export type VerifiedWorkflowResult =
-  | {
-      status: "scored";
-      scoringVersion: number;
-      total: number;
-      dimensions: Record<string, DimensionScore>;
-      evidence: WorkflowEvidenceSummary;
-    }
-  | {
-      status: "insufficient_evidence";
-      scoringVersion: number;
-      reasonCodes: string[];
-      evidence: WorkflowEvidenceSummary;
-    };
+/**
+ * The evidence behind the score's workflow dimensions. "scored" means those
+ * dimensions are in the breakdown; "insufficient_evidence" means the server
+ * dropped them and rescaled the rest, for the listed reasons.
+ */
+export interface ScoreWorkflow {
+  status: "scored" | "insufficient_evidence";
+  scoringVersion: number;
+  reasonCodes: string[];
+  evidence: WorkflowEvidenceSummary;
+}
+
+/**
+ * The score the server computes and returns on upload — since scoring v3, one
+ * Overall Score whose dimensions include the verified-workflow ones.
+ *
+ * `dimensions` is deliberately an open record rather than the eight keys the
+ * server ships today: the scoring service deploys independently of this CLI, so
+ * a new dimension must render as an extra row, not crash an old client.
+ */
+export interface Score {
+  total: number;
+  version: number;
+  dimensions: Record<string, DimensionScore>;
+  /** Null when the server predates the merged score. */
+  workflow: ScoreWorkflow | null;
+}
 
 /** Parsed upload response. Every field is null when the shape is unfamiliar. */
 export interface SubmissionResult {
   id: string | null;
   score: Score | null;
-  verifiedWorkflow: VerifiedWorkflowResult | null;
   /** Where the submitter can view this run in full — absent on older servers. */
   url: string | null;
 }
