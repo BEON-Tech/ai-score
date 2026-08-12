@@ -241,15 +241,19 @@ async function main(): Promise<void> {
       throw new Error("refusing to upload without confirmation — pass --yes, or use --dry-run");
     }
     const rl = createInterface({ input: process.stdin, output: process.stderr });
+    // Default-yes, like the open-report prompt below: uploading is the
+    // command's whole point, and the summary and --audit sit right above for
+    // anyone who wants to look first. Only an explicit "n" (or anything that
+    // isn't empty/affirmative) aborts.
     const answer = (
       await rl.question(
-        `  ${c.text("Upload this report?")} ${c.faint(new URL(target.submissionsUrl).host)} ${c.faint("[y/N]")} `,
+        `  ${c.text("Upload this report?")} ${c.faint(new URL(target.submissionsUrl).host)} ${c.faint("[Y/n]")} `,
       )
     )
       .trim()
       .toLowerCase();
     rl.close();
-    if (answer !== "y" && answer !== "yes") {
+    if (answer !== "" && answer !== "y" && answer !== "yes") {
       process.stderr.write(
         `\n  ${c.faint("aborted — nothing was uploaded. --audit shows the exact payload.")}\n\n`,
       );
