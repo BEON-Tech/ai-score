@@ -104,8 +104,8 @@ npx @beon-tech/ai-score --dry-run --out report.json # or write it to a file
 ```
 
 `--dry-run` needs no account and touches no network, so it works before you
-ever sign in. Uploading always requires explicit confirmation (interactive
-`y/N`, or an explicit `--yes` in scripts). This package has zero runtime
+ever sign in. Uploading always pauses for confirmation (interactive `Y/n`,
+Enter uploads; `--yes` in scripts). This package has zero runtime
 dependencies, so auditing the code means reading `src/` and nothing else.
 
 ## Commands and options
