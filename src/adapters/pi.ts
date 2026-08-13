@@ -8,6 +8,7 @@ import {
   home,
   jsonlRecords,
   newSessionRecord,
+  resultTextOf,
   toIso,
   toMs,
   usageBucket,
@@ -23,6 +24,7 @@ async function parseSession(
   const s = newSessionRecord(hash16(file), hash16(projectSlug));
   let cost = 0;
   let hasCost = false;
+  let cwd: string | null = null;
   let firstTs: number | null = null;
   let lastTs: number | null = null;
   let turnStart: number | null = null;
@@ -64,6 +66,7 @@ async function parseSession(
     if (r.type === "session") {
       if (typeof r.id === "string") s.id = hash16(r.id);
       if (typeof r.cwd === "string") {
+        cwd ??= r.cwd;
         s.projectId = hash16(r.cwd);
         workflow.projectDir(r.cwd);
       }
@@ -118,6 +121,8 @@ async function parseSession(
           toolOutcome(m),
           typeof m.toolCallId === "string" ? m.toolCallId : typeof m.id === "string" ? m.id : null,
           typeof m.toolName === "string" ? m.toolName : null,
+          // The recorded result is the only path to a piped check's verdict.
+          resultTextOf(m.content ?? m.output ?? m.result),
         );
         break;
     }
@@ -131,6 +136,12 @@ async function parseSession(
   s.endedAt = toIso(lastTs);
   s.costUsd = hasCost ? cost : null;
   s.workflow = workflow.finish();
+  // No native diff summary; successful edit calls imply one.
+  const estimated = workflow.estimatedOutcome();
+  s.outcome.additions = estimated.additions;
+  s.outcome.deletions = estimated.deletions;
+  s.outcome.filesChanged = estimated.filesChanged;
+  if (cwd) ctx.recordProjectDir?.(s.id, cwd);
   return s;
 }
 

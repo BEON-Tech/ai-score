@@ -44,6 +44,15 @@ export interface SessionOutcome {
   additions: number | null;
   deletions: number | null;
   distinctGitBranches: number | null;
+  /**
+   * Commits authored by this machine's git identity in the session's
+   * repository between the session's start and shortly after its end, read
+   * from local git history (timestamps only — no messages, no hashes). This
+   * is how delivery that happens outside the harness — a commit script, a
+   * separate terminal — stays visible. Null when the session's directory is
+   * unknown, is not a git repository, or git identity is unset.
+   */
+  localCommits: number | null;
 }
 
 export type WorkflowCodeChange = "success" | "failure" | "none" | "unknown";
@@ -86,6 +95,41 @@ export interface SessionRecord {
   workflow: WorkflowEvidence;
 }
 
+/**
+ * How a harness relates to one evidence signal. A null value in a session is
+ * ambiguous by construction — "didn't happen", "couldn't measure", and "this
+ * harness never records that" all serialize the same way — so every report
+ * declares, per signal, which reading applies:
+ *
+ * - `measured`: read from the harness's own records.
+ * - `estimated`: derived by this CLI from what the harness does record (e.g.
+ *   line counts implied by edit-tool arguments). Null when nothing fired.
+ * - `unobservable`: the harness never records enough to produce it. The
+ *   server must not score its absence against the engineer.
+ */
+export type SignalCapability = "measured" | "estimated" | "unobservable";
+
+export interface HarnessCapabilities {
+  filesChanged: SignalCapability;
+  additions: SignalCapability;
+  deletions: SignalCapability;
+  prLinks: SignalCapability;
+  distinctGitBranches: SignalCapability;
+  costUsd: SignalCapability;
+  longestTurnMs: SignalCapability;
+  toolErrors: SignalCapability;
+  toolDenials: SignalCapability;
+  interruptions: SignalCapability;
+  /**
+   * Whether check output text reaches the workflow classifier, so piped
+   * checks (`pnpm test | tail -8`) can settle on the runner's own summary
+   * line instead of an exit code a filter replaced. Where unobservable,
+   * `finalVerification: "unknown"` is the format's ceiling, not evidence.
+   */
+  checkVerdicts: SignalCapability;
+  localCommits: SignalCapability;
+}
+
 export interface HarnessReport {
   harness: HarnessName;
   detected: boolean;
@@ -95,6 +139,7 @@ export interface HarnessReport {
   sessionsIncluded: number;
   parseErrors: number;
   skippedReason: string | null;
+  capabilities: HarnessCapabilities;
   sessions: SessionRecord[];
 }
 
@@ -172,6 +217,13 @@ export interface CollectContext {
   since: Date;
   now: Date;
   verbose: (message: string) => void;
+  /**
+   * Where an adapter knows a session's working directory, it hands the raw
+   * path here so the CLI can consult local git history for out-of-harness
+   * delivery. The path itself never enters the payload — sessions carry only
+   * its 16-char hash and the resulting commit count.
+   */
+  recordProjectDir?: (sessionId: string, dir: string) => void;
 }
 
 export interface Adapter {

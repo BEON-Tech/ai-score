@@ -41,6 +41,10 @@ interface WorkflowEvent {
   companion?: WorkflowEvent;
   /** Excluded from name-based result matching — its carrier settles it. */
   isCompanion?: boolean;
+  /** Lines implied by a mutation's arguments, banked when its result succeeds. */
+  pendingDiff?: { adds: number; dels: number };
+  /** A mutation's target paths, for the distinct-files estimate. Transient. */
+  targets?: string[];
 }
 
 interface Classified {
@@ -175,6 +179,68 @@ function mutationTargets(input: unknown): string[] {
     }
   }
   return targets;
+}
+
+const lineCount = (value: unknown): number =>
+  typeof value === "string" && value.length > 0 ? value.split("\n").length : 0;
+
+const oldString = (record: Record<string, unknown>): unknown =>
+  record["old_string"] ?? record["oldString"] ?? record["old_str"];
+
+const newString = (record: Record<string, unknown>): unknown =>
+  record["new_string"] ?? record["newString"] ?? record["new_str"];
+
+/**
+ * Lines in/out implied by an editing tool's arguments, or null when the call
+ * carries nothing to measure. Shape-based rather than name-based so every
+ * harness's editing tools qualify: old/new replacement pairs, a `MultiEdit`
+ * style `edits` array, whole-file content, or an `apply_patch` body. An
+ * estimate (a `replace_all` counts once; a whole-file write can't see what it
+ * overwrote), but it turns "how much shipped" from structurally blank into
+ * real for harnesses without native diff summaries. Only ever consulted for
+ * calls already classified as mutations.
+ */
+export function editDiff(name: string, input: unknown): { adds: number; dels: number } | null {
+  void name;
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const record = input as Record<string, unknown>;
+  if (Array.isArray(record["edits"])) {
+    let adds = 0;
+    let dels = 0;
+    for (const edit of record["edits"]) {
+      if (!edit || typeof edit !== "object") continue;
+      adds += lineCount(newString(edit as Record<string, unknown>));
+      dels += lineCount(oldString(edit as Record<string, unknown>));
+    }
+    return adds > 0 || dels > 0 ? { adds, dels } : null;
+  }
+  if (oldString(record) !== undefined || newString(record) !== undefined) {
+    const adds = lineCount(newString(record));
+    const dels = lineCount(oldString(record));
+    return adds > 0 || dels > 0 ? { adds, dels } : null;
+  }
+  // codex's apply_patch: the diff body itself, so count its +/- lines.
+  const patch = [record["input"], record["patch"]].find((value) => typeof value === "string") as
+    | string
+    | undefined;
+  if (patch && /^\*\*\* (?:Add|Update|Delete) File: /m.test(patch)) {
+    let adds = 0;
+    let dels = 0;
+    for (const line of patch.split("\n")) {
+      if (/^\+(?!\+\+)/.test(line)) adds++;
+      else if (/^-(?!--)/.test(line)) dels++;
+    }
+    return adds > 0 || dels > 0 ? { adds, dels } : null;
+  }
+  // A whole-file write: the new content is countable, what it replaced is not.
+  const content = [record["content"], record["file_text"], record["contents"]].find(
+    (value) => typeof value === "string",
+  ) as string | undefined;
+  if (content !== undefined) {
+    const adds = lineCount(content);
+    return adds > 0 ? { adds, dels: 0 } : null;
+  }
+  return null;
 }
 
 /**
@@ -611,11 +677,14 @@ export function toolOutcome(value: unknown, depth = 0): ToolOutcome {
 export class WorkflowTracker {
   private readonly events: WorkflowEvent[] = [];
   private readonly callIds = new Map<string, WorkflowEvent>();
+  private readonly changedFiles = new Set<string>();
   private turn = -1;
   private unknownShellCall = false;
   private sessionChanged = false;
   private sequenceKnown: boolean;
   private projectDirValue: string | null = null;
+  private estimatedAdds: number | null = null;
+  private estimatedDels: number | null = null;
 
   constructor(private readonly options: TrackerOptions) {
     this.sequenceKnown = options.sequenceKnown;
@@ -648,7 +717,15 @@ export class WorkflowTracker {
     let classified = classifyTool(name, input, this.projectDirValue);
     if (!classified) {
       if (SHELL_TOOLS.has(normalized)) {
-        this.unknownShellCall = true;
+        // An opaque command can hide arbitrary effects on files, but it can
+        // only deliver if it invokes git/gh at all. A `curl` or a `python
+        // script.py` says nothing about delivery, so it must not erase the
+        // session's negative delivery evidence — only a command that names a
+        // git tool (or one whose text is unreadable) keeps that uncertainty.
+        const command = commandFromInput(input);
+        if (command === null || /(?:^|[\s;&|(`$])(?:git|gh|glab)(?:\s|$)/.test(command)) {
+          this.unknownShellCall = true;
+        }
         classified = { kind: "unknown-shell" };
       } else if (OBSERVATION_TOOLS.has(normalized)) classified = { kind: "observation" };
       else classified = { kind: "unknown-tool" };
@@ -656,6 +733,12 @@ export class WorkflowTracker {
     const { chainedVerification, ...bare } = classified;
     const turn = this.turn >= 0 ? this.turn : null;
     const event: WorkflowEvent = { ...bare, outcome: "unknown", turn, name: normalized };
+    if (event.kind === "mutation") {
+      const diff = editDiff(name, input);
+      if (diff) event.pendingDiff = diff;
+      const targets = mutationTargets(input);
+      if (targets.length > 0) event.targets = targets.map(normalizePath);
+    }
     if (chainedVerification) {
       const companion: WorkflowEvent = {
         ...chainedVerification,
@@ -725,6 +808,16 @@ export class WorkflowTracker {
       event.outcome = outcome;
       event.settled = outcome !== "unknown";
     }
+    // A mutation's implied diff is banked exactly once, and only when the
+    // result confirms it ran — a denied or failed edit changed nothing.
+    if (event.kind === "mutation" && event.outcome === "success") {
+      if (event.pendingDiff) {
+        this.estimatedAdds = (this.estimatedAdds ?? 0) + event.pendingDiff.adds;
+        this.estimatedDels = (this.estimatedDels ?? 0) + event.pendingDiff.dels;
+        event.pendingDiff = undefined;
+      }
+      for (const target of event.targets ?? []) this.changedFiles.add(target);
+    }
     const index = this.events.indexOf(event);
     if (index >= 0) {
       this.events.splice(index, 1);
@@ -744,6 +837,24 @@ export class WorkflowTracker {
   /** Session-level diff evidence proves a change, but not where it happened. */
   changedSession(): void {
     this.sessionChanged = true;
+  }
+
+  /**
+   * The diff the session's successful mutations imply, for harnesses without
+   * a native summary. Null parts mean "nothing measured", never "zero": line
+   * counts stay null until an edit with measurable arguments succeeds, and
+   * the file count until a successful mutation names its target.
+   */
+  estimatedOutcome(): {
+    filesChanged: number | null;
+    additions: number | null;
+    deletions: number | null;
+  } {
+    return {
+      filesChanged: this.changedFiles.size > 0 ? this.changedFiles.size : null,
+      additions: this.estimatedAdds,
+      deletions: this.estimatedDels,
+    };
   }
 
   finish(): WorkflowEvidence {

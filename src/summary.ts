@@ -269,12 +269,94 @@ export function renderReport(payload: Payload): string {
       );
     }
   }
+  notes.push(...evidenceNotes(payload));
   if (notes.length > 0) {
     out.push("");
     for (const note of notes) out.push(`${PAD}${c.faint("⌐")} ${c.muted(note)}`);
   }
   out.push("");
   return out.join("\n") + "\n";
+}
+
+/**
+ * Why a dimension can read low through no fault of the engineer's. Carlos's
+ * rule: nobody should have to download the source and analyze it to learn
+ * that their harness never records a signal. Derived entirely locally from
+ * the capability manifest and the collected sessions, so it prints on dry
+ * runs too. Exported for the tests.
+ */
+export function evidenceNotes(payload: Payload): string[] {
+  const notes: string[] = [];
+  const active = payload.harnesses.filter((h) => h.sessionsIncluded > 0);
+  if (active.length === 0) return notes;
+  const names = (harnesses: HarnessReport[]) => harnesses.map((h) => h.harness).join(", ");
+  // Tolerate reports from before the manifest existed rather than crash.
+  const declared = active.filter((h) => h.capabilities !== undefined);
+
+  const diffBlind = declared.filter((h) => h.capabilities.additions === "unobservable");
+  if (diffBlind.length > 0) {
+    notes.push(
+      `output — ${names(diffBlind)} never records diff sizes; a blank there is a harness limit, not unshipped work`,
+    );
+  }
+  const diffEstimated = declared.filter((h) => h.capabilities.additions === "estimated");
+  if (diffEstimated.length > 0) {
+    notes.push(`output — line counts for ${names(diffEstimated)} are estimated from edit calls`);
+  }
+  const verdictBlind = declared.filter((h) => h.capabilities.checkVerdicts === "unobservable");
+  if (verdictBlind.length > 0) {
+    notes.push(
+      `verification — ${names(verdictBlind)} records no check output; its piped checks read as unknown, never as failed`,
+    );
+  }
+  // A harness that can read verdicts but mostly didn't is worth attributing,
+  // so a mixed-harness run shows which one drags coverage down.
+  for (const h of declared) {
+    if (h.capabilities.checkVerdicts === "unobservable") continue;
+    const coding = h.sessions.filter((s) => s.workflow && s.workflow.codeChange !== "none");
+    const readable = coding.filter(
+      (s) => s.workflow.sequenceKnown && s.workflow.finalVerification !== "unknown",
+    );
+    if (coding.length >= 5 && readable.length / coding.length < 0.5) {
+      notes.push(
+        `${h.harness} — only ${readable.length} of ${coding.length} coding sessions carry readable verification evidence`,
+      );
+    }
+  }
+
+  let coding = 0;
+  let unknownVerdicts = 0;
+  let noChange = 0;
+  let localDeliveries = 0;
+  for (const h of active) {
+    for (const s of h.sessions) {
+      if (!s.workflow) continue;
+      if (s.workflow.codeChange === "none") noChange++;
+      else {
+        coding++;
+        if (s.workflow.finalVerification === "unknown") unknownVerdicts++;
+      }
+      if ((s.outcome?.localCommits ?? 0) > 0 && s.workflow.delivery !== "observed") {
+        localDeliveries++;
+      }
+    }
+  }
+  if (unknownVerdicts > 0) {
+    notes.push(
+      `${grouped(unknownVerdicts)} of ${grouped(coding)} coding sessions verify as unknown — missing data, not failed checks`,
+    );
+  }
+  if (noChange > 0) {
+    notes.push(
+      `${grouped(noChange)} sessions changed no code (research, docs, Q&A) — they are not verification candidates`,
+    );
+  }
+  if (localDeliveries > 0) {
+    notes.push(
+      `${grouped(localDeliveries)} sessions have commits visible only in local git history — reported as localCommits`,
+    );
+  }
+  return notes;
 }
 
 /**

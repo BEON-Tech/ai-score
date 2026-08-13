@@ -132,6 +132,15 @@ export const opencode: Adapter = {
 
         s.flags = { agents: [...agents].sort() };
         s.workflow = workflow.finish();
+        // The session summary is authoritative; the estimate only fills a
+        // summary the store never wrote.
+        const estimated = workflow.estimatedOutcome();
+        s.outcome.additions ??= estimated.additions;
+        s.outcome.deletions ??= estimated.deletions;
+        s.outcome.filesChanged ??= estimated.filesChanged;
+        if (typeof row.directory === "string" && row.directory) {
+          ctx.recordProjectDir?.(s.id, row.directory);
+        }
         report.sessions.push(s);
         report.sessionsIncluded++;
       }

@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { CAPABILITIES } from "../dist/capabilities.js";
 import { parseSubmission } from "../dist/send.js";
-import { renderReport, renderScore, renderUploaded } from "../dist/summary.js";
+import { evidenceNotes, renderReport, renderScore, renderUploaded } from "../dist/summary.js";
 import { blockText, compact, padStart, vlen } from "../dist/ui.js";
+import { newSessionRecord } from "../dist/util.js";
 
 /**
  * Strips ANSI escapes before asserting. Setting NO_COLOR here would not work —
@@ -358,5 +360,83 @@ describe("ui primitives", () => {
     assert.equal(compact(4108), "4.1k");
     assert.equal(compact(4_200_000), "4.2M");
     assert.equal(compact(1_042_000_000), "1.0B");
+  });
+});
+
+describe("evidenceNotes", () => {
+  const harness = (name, sessions) => ({
+    harness: name,
+    detected: true,
+    dataPath: null,
+    latestVersion: null,
+    sessionsScanned: sessions.length,
+    sessionsIncluded: sessions.length,
+    parseErrors: 0,
+    skippedReason: null,
+    capabilities: CAPABILITIES[name],
+    sessions,
+  });
+
+  const session = (overrides = {}) => {
+    const s = newSessionRecord("id", "project");
+    s.workflow = { ...s.workflow, sequenceKnown: true, ...overrides.workflow };
+    if (overrides.outcome) s.outcome = { ...s.outcome, ...overrides.outcome };
+    return s;
+  };
+
+  const payloadWith = (harnesses) => ({
+    schema: "beon.ai-score.v2",
+    client: { name: "t", version: "0", workflowClassifierVersion: 2 },
+    generatedAt: "",
+    window: { days: 365, start: "", end: "" },
+    engineer: { machineId: "m" },
+    platform: { os: "darwin", arch: "arm64", node: "22" },
+    harnesses,
+  });
+
+  it("names the harnesses whose signals are structurally blank", () => {
+    const notes = evidenceNotes(
+      payloadWith([
+        harness("copilot-ide", [session({ workflow: { codeChange: "success" } })]),
+        harness("claude-code", [session({ workflow: { codeChange: "success" } })]),
+      ]),
+    ).join("\n");
+    assert.match(notes, /copilot-ide never records diff sizes/);
+    assert.match(notes, /line counts for claude-code are estimated/);
+    assert.match(notes, /verification — copilot-ide records no check output/);
+  });
+
+  it("separates unknown verdicts and no-change sessions from failures", () => {
+    const notes = evidenceNotes(
+      payloadWith([
+        harness("claude-code", [
+          session({ workflow: { codeChange: "success", finalVerification: "unknown" } }),
+          session({ workflow: { codeChange: "none" } }),
+        ]),
+      ]),
+    ).join("\n");
+    assert.match(
+      notes,
+      /1 of 1 coding sessions verify as unknown — missing data, not failed checks/,
+    );
+    assert.match(notes, /1 sessions changed no code/);
+  });
+
+  it("surfaces delivery that only local git history saw", () => {
+    const notes = evidenceNotes(
+      payloadWith([
+        harness("claude-code", [
+          session({
+            workflow: { codeChange: "success", delivery: "not-observed" },
+            outcome: { localCommits: 2 },
+          }),
+        ]),
+      ]),
+    ).join("\n");
+    assert.match(notes, /1 sessions have commits visible only in local git history/);
+  });
+
+  it("says nothing when no harness produced sessions", () => {
+    assert.deepEqual(evidenceNotes(payloadWith([harness("claude-code", [])])), []);
   });
 });

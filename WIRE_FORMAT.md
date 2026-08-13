@@ -59,6 +59,14 @@ checks piped through filters like `tail`, where the exit code proves nothing —
 the runner's own pass/fail summary line in the recorded output. Raw values are
 immediately discarded and never serialized.
 
+One local source outside harness data is consulted: **git history**, read-only,
+to count the commits you made in a session's repository while it ran — the
+delivery evidence a commit script or second terminal leaves outside the
+transcript. The CLI reads `git config user.email` (to attribute commits to this
+machine, never sent) and commit timestamps. What survives into the payload is a
+single count per session (`outcome.localCommits`): no hashes, no messages, no
+branch names, no repository paths.
+
 ## Top level
 
 | Field                | Type                   | Meaning                                              |
@@ -83,33 +91,61 @@ immediately discarded and never serialized.
 | `sessionsIncluded` | number                                                                                                           | sessions inside the window                                                    |
 | `parseErrors`      | number                                                                                                           | records that failed to parse and were skipped                                 |
 | `skippedReason`    | string \| null                                                                                                   | why a detected harness produced no data (e.g. Node too old for `node:sqlite`) |
+| `capabilities`     | object                                                                                                           | what this adapter can observe, per signal — see below                         |
 | `sessions`         | `SessionRecord[]`                                                                                                |                                                                               |
+
+### `capabilities`
+
+A null in a session is ambiguous by construction: "didn't happen", "couldn't be
+measured this run", and "this harness never records that" all serialize the
+same way. The capability manifest is the disambiguation. Every report declares,
+for each evidence signal, one of three values:
+
+- `measured` — read from the harness's own records.
+- `estimated` — derived by the CLI from what the harness does record (e.g.
+  line counts implied by edit-tool arguments, banked only when the paired
+  result succeeded). Null when nothing measurable fired.
+- `unobservable` — the harness never records enough to produce the signal.
+  **The server must not score its absence against the engineer**; the correct
+  treatment is to renormalize the affected dimension over the signals that
+  were observable.
+
+The declared signals: `filesChanged`, `additions`, `deletions`, `prLinks`,
+`distinctGitBranches`, `costUsd`, `longestTurnMs`, `toolErrors`, `toolDenials`,
+`interruptions`, `checkVerdicts`, `localCommits`. `checkVerdicts` states
+whether check output text reaches the workflow classifier, so piped checks
+(`pnpm test | tail -8`) can settle on the runner's own summary line; where it
+is `unobservable`, `finalVerification: "unknown"` is the format's ceiling, not
+evidence about the engineer. The manifest lives in `src/capabilities.ts` and
+must change in the same commit as the adapter behavior it describes; `--audit`
+prints it with the rest of the payload.
 
 ## `SessionRecord`
 
-| Field                                              | Type                        | Meaning                                                                                            |
-| -------------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------- |
-| `id`                                               | string                      | 16-char SHA-256 prefix of the native session id                                                    |
-| `projectId`                                        | string                      | 16-char SHA-256 prefix of the project path — groups sessions by project without revealing the path |
-| `startedAt` / `endedAt`                            | ISO 8601 \| null            | first/last record timestamp                                                                        |
-| `isSubagent`                                       | boolean                     | session spawned by another session                                                                 |
-| `counts.userPrompts`                               | number                      | real human prompts (excludes tool results, meta records, subagent sidechains)                      |
-| `counts.assistantMessages`                         | number                      | assistant API responses                                                                            |
-| `counts.toolCalls`                                 | number                      | total tool invocations                                                                             |
-| `counts.toolErrors`                                | number                      | tool invocations that errored (where the harness records it)                                       |
-| `counts.toolDenials`                               | number                      | permission prompts the user rejected                                                               |
-| `counts.interruptions`                             | number                      | times the user aborted the agent mid-turn                                                          |
-| `tools`                                            | `{ [toolName]: count }`     | tool **names** only, never arguments or outputs                                                    |
-| `models`                                           | `{ [modelId]: TokenUsage }` | per-model token totals                                                                             |
-| `costUsd`                                          | number \| null              | cost where the harness records it (OpenCode, pi, Cursor's separately billed requests)              |
-| `flags`                                            | object                      | harness-specific structural signals, see below                                                     |
-| `agentic.turns`                                    | number                      | user-initiated turns                                                                               |
-| `agentic.maxToolCallsPerTurn`                      | number                      | longest uninterrupted tool-call run in one turn                                                    |
-| `agentic.longestTurnMs`                            | number \| null              | wall-clock length of the longest turn                                                              |
-| `outcome.prLinks`                                  | number                      | PRs the harness linked to the session (count only)                                                 |
-| `outcome.filesChanged` / `additions` / `deletions` | number \| null              | OpenCode session diff summary (counts only)                                                        |
-| `outcome.distinctGitBranches`                      | number \| null              | how many branches the session touched (names are not sent)                                         |
-| `workflow`                                         | object                      | optional privacy-safe edit/check evidence derived locally; see below                               |
+| Field                                              | Type                        | Meaning                                                                                                                                                           |
+| -------------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                                               | string                      | 16-char SHA-256 prefix of the native session id                                                                                                                   |
+| `projectId`                                        | string                      | 16-char SHA-256 prefix of the project path — groups sessions by project without revealing the path                                                                |
+| `startedAt` / `endedAt`                            | ISO 8601 \| null            | first/last record timestamp                                                                                                                                       |
+| `isSubagent`                                       | boolean                     | session spawned by another session                                                                                                                                |
+| `counts.userPrompts`                               | number                      | real human prompts (excludes tool results, meta records, subagent sidechains)                                                                                     |
+| `counts.assistantMessages`                         | number                      | assistant API responses                                                                                                                                           |
+| `counts.toolCalls`                                 | number                      | total tool invocations                                                                                                                                            |
+| `counts.toolErrors`                                | number                      | tool invocations that errored (where the harness records it)                                                                                                      |
+| `counts.toolDenials`                               | number                      | permission prompts the user rejected                                                                                                                              |
+| `counts.interruptions`                             | number                      | times the user aborted the agent mid-turn                                                                                                                         |
+| `tools`                                            | `{ [toolName]: count }`     | tool **names** only, never arguments or outputs                                                                                                                   |
+| `models`                                           | `{ [modelId]: TokenUsage }` | per-model token totals                                                                                                                                            |
+| `costUsd`                                          | number \| null              | cost where the harness records it (OpenCode, pi, Cursor's separately billed requests)                                                                             |
+| `flags`                                            | object                      | harness-specific structural signals, see below                                                                                                                    |
+| `agentic.turns`                                    | number                      | user-initiated turns                                                                                                                                              |
+| `agentic.maxToolCallsPerTurn`                      | number                      | longest uninterrupted tool-call run in one turn                                                                                                                   |
+| `agentic.longestTurnMs`                            | number \| null              | wall-clock length of the longest turn                                                                                                                             |
+| `outcome.prLinks`                                  | number                      | PRs the harness linked to the session (count only)                                                                                                                |
+| `outcome.filesChanged` / `additions` / `deletions` | number \| null              | session diff summary — native where the harness records one, estimated from edit-tool arguments elsewhere; the report's `capabilities` says which                 |
+| `outcome.distinctGitBranches`                      | number \| null              | how many branches the session touched (names are not sent)                                                                                                        |
+| `outcome.localCommits`                             | number \| null              | commits by this machine's git identity in the session's repo during the session (+30 min slack), read from local git history — count only; null when unmeasurable |
+| `workflow`                                         | object                      | optional privacy-safe edit/check evidence derived locally; see below                                                                                              |
 
 ### `workflow`
 
@@ -132,6 +168,15 @@ harness did not expose enough ordering, arguments, or structured outcome data
 to make the claim. The server must not label it as an observed failure or drop
 it from consideration. It remains visible in evidence coverage and the
 coding-session denominator.
+
+Two denominator rules the scorer is expected to honor:
+
+- Sessions with `codeChange: "none"` — research, docs, Q&A — are not
+  verification candidates. They must not dilute verified-completion or
+  coverage ratios; there was nothing to verify.
+- Where the report's `capabilities` declares a signal `unobservable`, the
+  affected dimension should be renormalized over the observable signals
+  rather than scoring the structural blank as a zero.
 
 Classifier v2 changes, all three aimed at patterns v1 misread as opaque or
 mutating:
@@ -185,7 +230,8 @@ neither records everything the others do. What each one can and cannot report:
 | `counts.toolErrors`      | not recorded                                 | tool status `error`                               |
 | `counts.toolDenials`     | not recorded                                 | tool decision `rejected`                          |
 | `counts.interruptions`   | not recorded                                 | tool status `cancelled`                           |
-| `outcome.additions` etc. | not recorded                                 | composer diff totals                              |
+| `outcome.additions` etc. | estimated from successful edit-call args     | composer diff totals                              |
+| `outcome.localCommits`   | never — the store hides the working dir      | from the workspace folder's git history           |
 | `projectId`              | hash of Cursor's own project key             | hash of the workspace folder path                 |
 
 Two consequences worth stating plainly:

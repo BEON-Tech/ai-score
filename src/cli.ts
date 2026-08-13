@@ -19,6 +19,7 @@ import {
 } from "./auth/index.js";
 import { canOpenBrowser, openBrowser } from "./auth/browser.js";
 import { DEFAULT_BASE_URL, resolveTarget } from "./config.js";
+import { annotateLocalCommits } from "./git-local.js";
 import { send, UnauthorizedError } from "./send.js";
 import {
   renderHeader,
@@ -28,7 +29,7 @@ import {
   renderUploaded,
   scanDetail,
 } from "./summary.js";
-import type { HarnessName, Payload } from "./types.js";
+import type { HarnessName, HarnessReport, Payload } from "./types.js";
 import { c, ScanProgress } from "./ui.js";
 import { displayPath, hash16 } from "./util.js";
 
@@ -190,18 +191,34 @@ async function main(): Promise<void> {
     );
   }
 
-  const harnesses = [];
+  const harnesses: HarnessReport[] = [];
+  // Session working directories, kept out of the reports on purpose: the
+  // payload only ever carries their hashes, but the git delivery cross-check
+  // below needs the real paths for a moment.
+  const collected: { report: HarnessReport; dirs: Map<string, string> }[] = [];
   try {
     for (const adapter of selected) {
       progress.begin(adapter.harness);
-      const report = await adapter.collect({ since, now, verbose });
+      const dirs = new Map<string, string>();
+      const report = await adapter.collect({
+        since,
+        now,
+        verbose,
+        recordProjectDir: (sessionId, dir) => dirs.set(sessionId, dir),
+      });
       progress.end(adapter.harness, scanDetail(report));
       harnesses.push(report);
+      collected.push({ report, dirs });
     }
   } finally {
     // Always erase the block and restore the cursor, including on a throw.
     progress.finish();
   }
+
+  // Delivery that happened outside the harness — commit scripts, a second
+  // terminal — is only visible in local git history. Read-only and offline;
+  // only commit counts survive into the payload.
+  await annotateLocalCommits(collected, since, verbose);
 
   const payload: Payload = {
     schema: "beon.ai-score.v2",

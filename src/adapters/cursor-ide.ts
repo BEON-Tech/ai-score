@@ -9,6 +9,7 @@ import {
   home,
   NEEDS_SQLITE,
   newSessionRecord,
+  resultTextOf,
   toIso,
   toMs,
   usageBucket,
@@ -27,9 +28,19 @@ import { toolOutcome, WorkflowTracker } from "../workflow.js";
  * touches.
  */
 
+/** A composer's project hash plus, for local folders, the folder itself. */
+export interface ComposerProject {
+  projectId: string;
+  /** Raw local path — consulted for git history, never serialized. */
+  dir: string | null;
+}
+
 /** Composers are workspace-scoped; the mapping only exists in workspaceStorage. */
-export function projectsByComposer(workspaceRoot: string, DatabaseSync: any): Map<string, string> {
-  const map = new Map<string, string>();
+export function projectsByComposer(
+  workspaceRoot: string,
+  DatabaseSync: any,
+): Map<string, ComposerProject> {
+  const map = new Map<string, ComposerProject>();
   let dirs: string[];
   try {
     dirs = readdirSync(workspaceRoot);
@@ -45,7 +56,12 @@ export function projectsByComposer(workspaceRoot: string, DatabaseSync: any): Ma
     } catch {
       /* a workspace with no folder — the composers still count, the project does not */
     }
-    const projectId = hash16(folder ? workspacePath(folder) : dir);
+    const path = folder ? workspacePath(folder) : null;
+    const project: ComposerProject = {
+      projectId: hash16(path ?? dir),
+      // Remote workspaces reduce to a URI, not a directory on this disk.
+      dir: path && /^(?:[A-Za-z]:)?[\\/]/.test(path) ? path : null,
+    };
     let db: any;
     try {
       db = new DatabaseSync(dbPath, { readOnly: true });
@@ -53,7 +69,7 @@ export function projectsByComposer(workspaceRoot: string, DatabaseSync: any): Ma
         .prepare("SELECT value FROM ItemTable WHERE key = ?")
         .get("composer.composerData");
       for (const composer of JSON.parse(String(row?.value ?? "{}")).allComposers ?? []) {
-        if (typeof composer?.composerId === "string") map.set(composer.composerId, projectId);
+        if (typeof composer?.composerId === "string") map.set(composer.composerId, project);
       }
     } catch {
       /* an unreadable workspace costs its composers a project id, nothing more */
@@ -198,6 +214,8 @@ export function foldComposer(
           ? tool.toolCallId
           : null,
       toolOutcome(tool),
+      // The recorded result is the only path to a piped check's verdict.
+      resultTextOf(tool.result ?? tool.output),
     );
     turnTools++;
     if (name.startsWith("mcp")) mcpCalls++;
@@ -280,7 +298,12 @@ function appVersion(db: any): string | null {
   }
 }
 
-function collectSessions(db: any, report: HarnessReport, ctx: any, projects: Map<string, string>) {
+function collectSessions(
+  db: any,
+  report: HarnessReport,
+  ctx: any,
+  projects: Map<string, ComposerProject>,
+) {
   const composers: any[] = [];
   const subComposerIds = new Set<string>();
   for (const row of db
@@ -332,10 +355,11 @@ function collectSessions(db: any, report: HarnessReport, ctx: any, projects: Map
       }
     }
 
+    const project = projects.get(composer.composerId);
     const s = foldComposer(
       composer,
       bubbles,
-      projects.get(composer.composerId) ?? "unknown",
+      project?.projectId ?? "unknown",
       subComposerIds.has(composer.composerId),
       sequenceKnown,
     );
@@ -346,6 +370,7 @@ function collectSessions(db: any, report: HarnessReport, ctx: any, projects: Map
     ) {
       continue;
     }
+    if (project?.dir) ctx.recordProjectDir?.(s.id, project.dir);
     report.sessions.push(s);
     report.sessionsIncluded++;
   }

@@ -58,6 +58,7 @@ export async function parseSession(
   let hookEvents = 0;
   let skillCalls = 0;
   let gitRepo = false;
+  let cwd: string | null = null;
   let firstTs: number | null = null;
   let lastTs: number | null = null;
   let turnStart: number | null = null;
@@ -83,7 +84,9 @@ export async function parseSession(
     if (context.gitRoot || context.repository) gitRepo = true;
     if (typeof context.branch === "string" && context.branch) branches.add(context.branch);
     if (typeof context.cwd === "string" && s.projectId === "unknown") {
+      cwd = context.cwd;
       s.projectId = hash16(context.cwd);
+      workflow.projectDir(context.cwd);
     }
   };
 
@@ -242,6 +245,14 @@ export async function parseSession(
     skillCalls,
   };
   s.workflow = workflow.finish();
+  // `session.shutdown` carries the real diff stats, but a session that
+  // crashed or is still open never wrote one — fall back to the estimate the
+  // successful edit calls imply rather than reporting nothing.
+  const estimated = workflow.estimatedOutcome();
+  s.outcome.additions ??= estimated.additions;
+  s.outcome.deletions ??= estimated.deletions;
+  s.outcome.filesChanged ??= estimated.filesChanged;
+  if (cwd) ctx.recordProjectDir?.(s.id, cwd);
   return s;
 }
 

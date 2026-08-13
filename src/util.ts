@@ -4,6 +4,7 @@ import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+import { CAPABILITIES } from "./capabilities.js";
 import type { HarnessName, HarnessReport, SessionRecord, TokenUsage } from "./types.js";
 
 export function hash16(value: string): string {
@@ -108,8 +109,43 @@ export function emptyReport(harness: HarnessName, dataPath: string | null): Harn
     sessionsIncluded: 0,
     parseErrors: 0,
     skippedReason: null,
+    capabilities: CAPABILITIES[harness],
     sessions: [],
   };
+}
+
+/**
+ * The text inside a tool result, whatever shape the harness stored it in —
+ * a bare string, AI SDK content parts, a JSON-encoded envelope. Inspected
+ * transiently by the workflow classifier for the runner's own pass/fail
+ * summary line; the raw value is never serialized.
+ */
+export function resultTextOf(value: unknown, depth = 0): string | null {
+  if (depth > 4 || value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if ((trimmed.startsWith("{") || trimmed.startsWith("[")) && trimmed.length < 1_000_000) {
+      try {
+        return resultTextOf(JSON.parse(trimmed), depth + 1) ?? value;
+      } catch {
+        return value;
+      }
+    }
+    return value.length > 0 ? value : null;
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((entry) => resultTextOf(entry, depth + 1))
+      .filter((text): text is string => text !== null);
+    return parts.length > 0 ? parts.join("\n") : null;
+  }
+  if (typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ["text", "value", "output", "stdout", "result", "content", "message"]) {
+    const text = resultTextOf(record[key], depth + 1);
+    if (text !== null) return text;
+  }
+  return null;
 }
 
 export function newSessionRecord(id: string, projectId: string): SessionRecord {
@@ -138,6 +174,7 @@ export function newSessionRecord(id: string, projectId: string): SessionRecord {
       additions: null,
       deletions: null,
       distinctGitBranches: null,
+      localCommits: null,
     },
     workflow: {
       classifierVersion: 2,

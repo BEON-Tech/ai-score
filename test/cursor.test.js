@@ -271,3 +271,89 @@ describe("cursor-ide / foldComposer", () => {
     assert.deepEqual(s.models, {});
   });
 });
+
+describe("cursor / piped-check verdicts and diff estimates", () => {
+  it("settles a piped check from the recorded output text (cursor-cli)", () => {
+    const s = newSessionRecord("id", "project");
+    foldMessages(
+      [
+        { role: "user", content: [{ type: "text", text: "fix it" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolName: "edit",
+              toolCallId: "e1",
+              input: { file_path: "/p/a.ts", old_string: "x", new_string: "y\nz" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [{ type: "tool-result", toolCallId: "e1", output: { exitCode: 0 } }],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolName: "shell",
+              toolCallId: "t1",
+              input: { command: "pnpm test 2>&1 | tail -8" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "t1",
+              output: { exitCode: 0, output: "Tests  9 passed (9)\nDuration  1.2s" },
+            },
+          ],
+        },
+      ],
+      s,
+    );
+    // The pipe replaced the test runner's exit code; only the recorded output
+    // text can certify the pass. Before resultText flowed, this was "unknown".
+    assert.equal(s.workflow.finalVerification, "passed");
+    // And the successful edit implies a measurable diff.
+    assert.equal(s.outcome.additions, 2);
+    assert.equal(s.outcome.deletions, 1);
+    assert.equal(s.outcome.filesChanged, 1);
+  });
+
+  it("settles a piped check from toolFormerData.result (cursor-ide)", () => {
+    const s = foldComposer(
+      { composerId: "c9", createdAt: 1, lastUpdatedAt: 2 },
+      [
+        { type: 1, text: "run the tests" },
+        {
+          type: 2,
+          toolFormerData: {
+            name: "edit_file",
+            callId: "e1",
+            status: "completed",
+            input: { file_path: "/p/a.ts", old_string: "x", new_string: "y" },
+          },
+        },
+        {
+          type: 2,
+          toolFormerData: {
+            name: "run_terminal_cmd",
+            callId: "t1",
+            status: "completed",
+            input: { command: "pnpm test | tail -5" },
+            result: JSON.stringify({ output: "Tests  3 passed (3)" }),
+          },
+        },
+      ],
+      "p",
+      false,
+    );
+    assert.equal(s.workflow.finalVerification, "passed");
+  });
+});

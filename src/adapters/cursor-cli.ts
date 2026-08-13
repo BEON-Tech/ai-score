@@ -10,6 +10,7 @@ import {
   home,
   NEEDS_SQLITE,
   newSessionRecord,
+  resultTextOf,
   toIso,
   toMs,
 } from "../util.js";
@@ -157,6 +158,9 @@ export function foldMessages(
                 ? block.id
                 : null,
             typeof block.toolName === "string" ? block.toolName : null,
+            // The classifier's only path to a piped check's verdict is the
+            // runner's own summary line inside the recorded output.
+            resultTextOf(block.output ?? block.result),
           );
         }
         break;
@@ -165,6 +169,11 @@ export function foldMessages(
   }
   closeTurn();
   s.workflow = workflow.finish();
+  // The store records no diff summary; successful edit calls imply one.
+  const estimated = workflow.estimatedOutcome();
+  s.outcome.additions ??= estimated.additions;
+  s.outcome.deletions ??= estimated.deletions;
+  s.outcome.filesChanged ??= estimated.filesChanged;
   return { reasoning };
 }
 

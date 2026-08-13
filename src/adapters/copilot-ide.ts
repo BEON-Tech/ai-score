@@ -198,14 +198,18 @@ function userDirs(): string[] {
 }
 
 /** The workspace folder is beside the sessions, in `workspace.json`. */
-function projectIdFor(workspaceDir: string): string {
+function projectFor(workspaceDir: string): { projectId: string; dir: string | null } {
   try {
     const folder = JSON.parse(readFileSync(join(workspaceDir, "workspace.json"), "utf8")).folder;
-    if (typeof folder === "string") return hash16(workspacePath(folder));
+    if (typeof folder === "string") {
+      const path = workspacePath(folder);
+      // Remote workspaces reduce to a URI, not a directory on this disk.
+      return { projectId: hash16(path), dir: /^(?:[A-Za-z]:)?[\\/]/.test(path) ? path : null };
+    }
   } catch {
     /* a workspace with no folder — the sessions still count, the project does not */
   }
-  return "unknown";
+  return { projectId: "unknown", dir: null };
 }
 
 export const copilotIde: Adapter = {
@@ -233,7 +237,7 @@ export const copilotIde: Adapter = {
         }
         if (files.length === 0) continue;
         report.detected = true;
-        const projectId = projectIdFor(workspaceDir);
+        const project = projectFor(workspaceDir);
         for (const name of files) {
           const file = join(sessionsDir, name);
           report.sessionsScanned++;
@@ -241,12 +245,16 @@ export const copilotIde: Adapter = {
             const info = await stat(file);
             if (info.mtimeMs < ctx.since.getTime()) continue;
             ctx.verbose(`copilot-ide: parsing ${displayPath(file)}`);
-            const session = foldChatSession(JSON.parse(await readFile(file, "utf8")), projectId);
+            const session = foldChatSession(
+              JSON.parse(await readFile(file, "utf8")),
+              project.projectId,
+            );
             if (!session) {
               report.parseErrors++;
               continue;
             }
             if (session.counts.userPrompts === 0 && session.counts.toolCalls === 0) continue;
+            if (project.dir) ctx.recordProjectDir?.(session.id, project.dir);
             report.sessions.push(session);
             report.sessionsIncluded++;
           } catch {

@@ -6,8 +6,7 @@ import {
   codexDetachedIdFromOutput,
   codexOutcome,
 } from "../dist/adapters/codex.js";
-import { editDiff } from "../dist/adapters/claude-code.js";
-import { toolOutcome, verificationVerdict, WorkflowTracker } from "../dist/workflow.js";
+import { editDiff, toolOutcome, verificationVerdict, WorkflowTracker } from "../dist/workflow.js";
 
 const tracker = () =>
   new WorkflowTracker({
@@ -637,7 +636,7 @@ describe("workflow evidence", () => {
   });
 });
 
-describe("claude-code edit diff estimates", () => {
+describe("edit diff estimates", () => {
   it("counts lines from Edit arguments", () => {
     assert.deepEqual(editDiff("Edit", { old_string: "a\nb", new_string: "a\nb\nc" }), {
       adds: 3,
@@ -661,5 +660,85 @@ describe("claude-code edit diff estimates", () => {
   it("returns null for non-edit tools and empty edits", () => {
     assert.equal(editDiff("Read", { file_path: "x" }), null);
     assert.equal(editDiff("Edit", { old_string: "", new_string: "" }), null);
+  });
+
+  it("counts the +/- lines of an apply_patch body", () => {
+    assert.deepEqual(
+      editDiff("apply_patch", {
+        input:
+          "*** Begin Patch\n*** Update File: src/a.ts\n@@\n-old line\n+new line\n+another\n*** End Patch",
+      }),
+      { adds: 2, dels: 1 },
+    );
+  });
+
+  it("banks a mutation's implied diff only when its result succeeds", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", { file_path: "/p/a.ts", old_string: "x", new_string: "y\nz" }, "ok");
+    t.toolCall("Edit", { file_path: "/p/b.ts", old_string: "x", new_string: "y" }, "denied");
+    t.toolCall("Write", { file_path: "/p/a.ts", content: "1\n2" }, "pending");
+    t.toolResult("success", "ok");
+    t.toolResult("not-run", "denied");
+    // "pending" never settles — no known completion, nothing banked.
+
+    assert.deepEqual(t.estimatedOutcome(), { filesChanged: 1, additions: 2, deletions: 1 });
+  });
+
+  it("counts distinct files, not edit calls", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall(
+      "Edit",
+      { file_path: "/p/a.ts", old_string: "x", new_string: "y" },
+      "one",
+      "success",
+    );
+    t.toolCall(
+      "Edit",
+      { file_path: "/p/a.ts", old_string: "y", new_string: "z" },
+      "two",
+      "success",
+    );
+    t.toolCall("Write", { file_path: "/p/b.ts", content: "1" }, "three", "success");
+
+    assert.equal(t.estimatedOutcome().filesChanged, 2);
+  });
+
+  it("reports null, never zero, when nothing was measured", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
+    assert.deepEqual(t.estimatedOutcome(), {
+      filesChanged: null,
+      additions: null,
+      deletions: null,
+    });
+  });
+});
+
+describe("delivery evidence and opaque commands", () => {
+  it("does not let a non-git opaque command erase negative delivery evidence", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "python scripts/deploy_docs.py --env staging" }, "sh", "success");
+    assert.equal(t.finish().delivery, "not-observed");
+  });
+
+  it("keeps delivery unknown when an opaque command invokes git", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "./scripts/ship.sh && git cherry-pick abc123" }, "sh", "success");
+    assert.equal(t.finish().delivery, "unknown");
+  });
+
+  it("keeps delivery unknown when a shell command's text is unreadable", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", undefined, "sh", "success");
+    assert.equal(t.finish().delivery, "unknown");
   });
 });

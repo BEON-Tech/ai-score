@@ -74,6 +74,7 @@ async function parseSession(
   let mcpCalls = 0;
   let errors = 0;
   let gitRepo = false;
+  let cwd: string | null = null;
   let firstTs: number | null = null;
   let lastTs: number | null = null;
   let turnStart: number | null = null;
@@ -121,6 +122,7 @@ async function parseSession(
         const nativeId = p.id ?? p.session_id;
         if (nativeId) s.id = hash16(String(nativeId));
         if (typeof p.cwd === "string") {
+          cwd ??= p.cwd;
           s.projectId = hash16(p.cwd);
           workflow.projectDir(p.cwd);
         }
@@ -253,6 +255,12 @@ async function parseSession(
     gitRepo,
   };
   s.workflow = workflow.finish();
+  // No native diff summary; apply_patch arguments imply one.
+  const estimated = workflow.estimatedOutcome();
+  s.outcome.additions = estimated.additions;
+  s.outcome.deletions = estimated.deletions;
+  s.outcome.filesChanged = estimated.filesChanged;
+  if (cwd) ctx.recordProjectDir?.(s.id, cwd);
   return s;
 }
 
