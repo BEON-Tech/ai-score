@@ -8,7 +8,7 @@ returns a single Overall Score: eight dimensions covering verified workflow
 customization, efficiency).
 
 ```sh
-npx @beon-tech/ai-score              # sign in if needed, scan, summarize, confirm, upload
+npx @beon-tech/ai-score              # sign in if needed, scan, summarize, upload
 npx @beon-tech/ai-score --dry-run    # scan and summarize only — never touches the network
 npx @beon-tech/ai-score --audit      # print the exact JSON that would be uploaded
 ```
@@ -104,14 +104,13 @@ npx @beon-tech/ai-score --dry-run --out report.json # or write it to a file
 ```
 
 `--dry-run` needs no account and touches no network, so it works before you
-ever sign in. Uploading always pauses for confirmation (interactive `Y/n`,
-Enter uploads; `--yes` in scripts). This package has zero runtime
-dependencies, so auditing the code means reading `src/` and nothing else.
+ever sign in. This package has zero runtime dependencies, so auditing the
+code means reading `src/` and nothing else.
 
 ## Commands and options
 
 ```
-(no command)        scan, summarize, confirm, upload
+(no command)        scan, summarize, upload
 login               sign in through the browser
 logout              forget the cached token for this server
 whoami              print the account this machine submits as
@@ -126,7 +125,7 @@ whoami              print the account this machine submits as
 --audit             print the exact JSON payload
 --out <file>        write the payload to a file
 --dry-run           never touch the network
---yes               skip the interactive upload confirmation
+--yes               skip remaining interactive prompts
 --endpoint <url>    deprecated: exact submissions URL, overrides --url
 --verbose           log each session file as it is parsed
 ```
@@ -141,7 +140,7 @@ whoami              print the account this machine submits as
 
 ```
 src/
-  cli.ts             argument parsing, commands, orchestration, consent
+  cli.ts             argument parsing, commands, orchestration
   config.ts          resolves which server to talk to
   types.ts           the beon.ai-score.v2 wire format
   workflow.ts        local command classification and workflow reduction

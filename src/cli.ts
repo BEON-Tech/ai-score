@@ -38,7 +38,7 @@ type Command = (typeof COMMANDS)[number];
 const HELP = `ai-score — extract AI coding harness usage into an auditable report
 
 Usage
-  npx @beon-tech/ai-score [options]        scan, summarize, confirm, upload
+  npx @beon-tech/ai-score [options]        scan, summarize, upload
   npx @beon-tech/ai-score login            sign in through your browser
   npx @beon-tech/ai-score logout           forget the cached token
   npx @beon-tech/ai-score whoami           show who this machine is signed in as
@@ -57,11 +57,11 @@ Options
                       ${DEFAULT_BASE_URL})
   --no-browser        never open a browser — print login and report URLs only
 
-Audit / consent
+Audit
   --audit             print the exact JSON payload that would be uploaded
   --out <file>        write the payload to a file for inspection
   --dry-run           extract and summarize, but never touch the network
-  --yes               skip the interactive upload confirmation
+  --yes               skip remaining interactive prompts
 
 Other
   --endpoint <url>    deprecated: exact submissions URL, overrides --url
@@ -235,32 +235,6 @@ async function main(): Promise<void> {
   // Login needs no stdin, but it does need someone watching the terminal;
   // blocking a CI job for ten minutes is worse than failing fast.
   const token = await resolveToken({ ...auth, allowLogin: Boolean(process.stdin.isTTY) });
-
-  if (!values.yes) {
-    if (!process.stdin.isTTY) {
-      throw new Error("refusing to upload without confirmation — pass --yes, or use --dry-run");
-    }
-    const rl = createInterface({ input: process.stdin, output: process.stderr });
-    // Default-yes, like the open-report prompt below: uploading is the
-    // command's whole point, and the summary and --audit sit right above for
-    // anyone who wants to look first. Only an explicit "n" (or anything that
-    // isn't empty/affirmative) aborts.
-    const answer = (
-      await rl.question(
-        `  ${c.text("Upload this report?")} ${c.faint(new URL(target.submissionsUrl).host)} ${c.faint("[Y/n]")} `,
-      )
-    )
-      .trim()
-      .toLowerCase();
-    rl.close();
-    if (answer !== "" && answer !== "y" && answer !== "yes") {
-      process.stderr.write(
-        `\n  ${c.faint("aborted — nothing was uploaded. --audit shows the exact payload.")}\n\n`,
-      );
-      return;
-    }
-    process.stderr.write("\n");
-  }
 
   try {
     const { status, result } = await send(target.submissionsUrl, payload, token);
