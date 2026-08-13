@@ -111,8 +111,9 @@ for each evidence signal, one of three values:
   were observable.
 
 The declared signals: `filesChanged`, `additions`, `deletions`, `prLinks`,
-`distinctGitBranches`, `costUsd`, `longestTurnMs`, `toolErrors`, `toolDenials`,
-`interruptions`, `checkVerdicts`, `localCommits`. `checkVerdicts` states
+`distinctGitBranches`, `costUsd`, `cacheTokens`, `longestTurnMs`,
+`toolErrors`, `toolDenials`, `interruptions`, `checkVerdicts`,
+`localCommits`. `checkVerdicts` states
 whether check output text reaches the workflow classifier, so piped checks
 (`pnpm test | tail -8`) can settle on the runner's own summary line; where it
 is `unobservable`, `finalVerification: "unknown"` is the format's ceiling, not

@@ -23,6 +23,7 @@ export const CAPABILITIES: Record<HarnessName, HarnessCapabilities> = {
     prLinks: "measured",
     distinctGitBranches: "measured",
     costUsd: "unobservable",
+    cacheTokens: "measured",
     longestTurnMs: "measured",
     // Result blocks mark errors, but the count currently stays at zero —
     // declared unobservable so a zero is never read as "no errors".
@@ -39,6 +40,7 @@ export const CAPABILITIES: Record<HarnessName, HarnessCapabilities> = {
     prLinks: "unobservable",
     distinctGitBranches: "unobservable",
     costUsd: "unobservable",
+    cacheTokens: "measured",
     longestTurnMs: "measured",
     toolErrors: "unobservable",
     toolDenials: "unobservable",
@@ -55,6 +57,7 @@ export const CAPABILITIES: Record<HarnessName, HarnessCapabilities> = {
     prLinks: "unobservable",
     distinctGitBranches: "measured",
     costUsd: "unobservable",
+    cacheTokens: "measured",
     longestTurnMs: "measured",
     toolErrors: "measured",
     toolDenials: "measured",
@@ -71,6 +74,7 @@ export const CAPABILITIES: Record<HarnessName, HarnessCapabilities> = {
     prLinks: "measured",
     distinctGitBranches: "unobservable",
     costUsd: "unobservable",
+    cacheTokens: "unobservable",
     longestTurnMs: "measured",
     toolErrors: "unobservable",
     toolDenials: "measured",
@@ -85,6 +89,7 @@ export const CAPABILITIES: Record<HarnessName, HarnessCapabilities> = {
     prLinks: "unobservable",
     distinctGitBranches: "unobservable",
     costUsd: "unobservable",
+    cacheTokens: "unobservable",
     // Messages carry no clock, and the store never writes the working
     // directory down — only its own opaque key for it.
     longestTurnMs: "unobservable",
@@ -101,6 +106,7 @@ export const CAPABILITIES: Record<HarnessName, HarnessCapabilities> = {
     prLinks: "measured",
     distinctGitBranches: "unobservable",
     costUsd: "measured",
+    cacheTokens: "unobservable",
     longestTurnMs: "measured",
     toolErrors: "measured",
     toolDenials: "measured",
@@ -115,6 +121,7 @@ export const CAPABILITIES: Record<HarnessName, HarnessCapabilities> = {
     prLinks: "unobservable",
     distinctGitBranches: "unobservable",
     costUsd: "measured",
+    cacheTokens: "measured",
     longestTurnMs: "unobservable",
     toolErrors: "measured",
     toolDenials: "unobservable",
@@ -129,6 +136,7 @@ export const CAPABILITIES: Record<HarnessName, HarnessCapabilities> = {
     prLinks: "unobservable",
     distinctGitBranches: "unobservable",
     costUsd: "measured",
+    cacheTokens: "measured",
     longestTurnMs: "measured",
     toolErrors: "measured",
     toolDenials: "unobservable",

@@ -116,6 +116,12 @@ export interface HarnessCapabilities {
   prLinks: SignalCapability;
   distinctGitBranches: SignalCapability;
   costUsd: SignalCapability;
+  /**
+   * Whether per-model cache token counts are real. Cursor and Copilot's VS
+   * Code surface never record them, so their zero buckets mean "the file
+   * doesn't say", not "started cold every time".
+   */
+  cacheTokens: SignalCapability;
   longestTurnMs: SignalCapability;
   toolErrors: SignalCapability;
   toolDenials: SignalCapability;
