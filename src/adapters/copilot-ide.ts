@@ -58,6 +58,7 @@ export function foldChatSession(data: any, projectId: string): SessionRecord | n
   const s = newSessionRecord(hash16(String(data.sessionId ?? "")), projectId);
   const models = new Set<string>();
   const editedFiles = new Set<string>();
+  const prSeen = new Set<string>();
   let mcpCalls = 0;
   let subagentRuns = 0;
   let firstTs = toMs(data.creationDate);
@@ -148,10 +149,16 @@ export function foldChatSession(data: any, projectId: string): SessionRecord | n
           workflow.toolCall("edit_file", undefined, null, "success");
           break;
         }
-        case "pullRequest":
-          s.outcome.prLinks++;
+        case "pullRequest": {
+          // The same PR can be re-serialized across requests; count distinct.
+          const prKey = uriKey(part.uri) ?? JSON.stringify(part.pullRequest ?? part.uri ?? part);
+          if (!prSeen.has(prKey)) {
+            prSeen.add(prKey);
+            s.outcome.prLinks++;
+          }
           workflow.delivery("success");
           break;
+        }
         default:
           if (typeof part.value === "string" && part.value.trim().length > 0) sawText = true;
       }
