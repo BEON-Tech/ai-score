@@ -11,6 +11,7 @@ import {
   resultTextOf,
   toIso,
   toMs,
+  TurnClock,
   usageBucket,
 } from "../util.js";
 import { toolOutcome, WorkflowTracker } from "../workflow.js";
@@ -27,7 +28,7 @@ async function parseSession(
   let cwd: string | null = null;
   let firstTs: number | null = null;
   let lastTs: number | null = null;
-  let turnStart: number | null = null;
+  const turnClock = new TurnClock();
   let turnTools = 0;
   const workflow = new WorkflowTracker({
     sequenceKnown: true,
@@ -35,13 +36,13 @@ async function parseSession(
     deliveryObservation: true,
   });
 
-  const closeTurn = (endTs: number | null) => {
-    if (turnStart === null) return;
+  const closeTurn = () => {
+    const activeMs = turnClock.stop();
+    if (activeMs === null) return;
     s.agentic.maxToolCallsPerTurn = Math.max(s.agentic.maxToolCallsPerTurn, turnTools);
-    if (endTs !== null && endTs > turnStart) {
-      s.agentic.longestTurnMs = Math.max(s.agentic.longestTurnMs ?? 0, endTs - turnStart);
+    if (activeMs > 0) {
+      s.agentic.longestTurnMs = Math.max(s.agentic.longestTurnMs ?? 0, activeMs);
     }
-    turnStart = null;
     turnTools = 0;
   };
 
@@ -73,15 +74,18 @@ async function parseSession(
       if (typeof r.version === "string") report.latestVersion = r.version;
       continue;
     }
-    if (r.type !== "message") continue;
+    if (r.type !== "message") {
+      turnClock.tick(ts);
+      continue;
+    }
     const m: any = r.message ?? {};
     switch (m.role) {
       case "user":
-        closeTurn(ts);
+        closeTurn();
         s.counts.userPrompts++;
         s.agentic.turns++;
         workflow.humanTurn();
-        turnStart = ts;
+        turnClock.start(ts);
         break;
       case "assistant": {
         s.counts.assistantMessages++;
@@ -126,8 +130,9 @@ async function parseSession(
         );
         break;
     }
+    turnClock.tick(ts);
   }
-  closeTurn(lastTs);
+  closeTurn();
 
   if (lastTs !== null && lastTs < ctx.since.getTime()) return null;
   if (s.counts.userPrompts === 0 && s.counts.assistantMessages === 0) return null;

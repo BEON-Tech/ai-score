@@ -12,6 +12,7 @@ import {
   resultTextOf,
   toIso,
   toMs,
+  TurnClock,
   usageBucket,
 } from "../util.js";
 import { toolOutcome, WorkflowTracker } from "../workflow.js";
@@ -142,13 +143,11 @@ export function foldComposer(
   const models = new Set<string>();
   let mcpCalls = 0;
   let thinking = 0;
-  // Turn membership and turn duration are tracked apart on purpose: only some
-  // bubbles carry a clock, and a turn whose timings are missing must still
-  // contribute its tool count.
-  let inTurn = false;
-  let turnStart: number | null = null;
-  let turnEnd: number | null = null;
+  // Only some bubbles carry a clock; a turn opened without one still counts
+  // its tools, and the clock starts at the first timed bubble (start(null)).
+  const turnClock = new TurnClock();
   let turnTools = 0;
+  const prSeen = new Set<string>();
   const workflow = new WorkflowTracker({
     sequenceKnown,
     commandObservation: true,
@@ -156,14 +155,12 @@ export function foldComposer(
   });
 
   const closeTurn = () => {
-    if (!inTurn) return;
+    const activeMs = turnClock.stop();
+    if (activeMs === null) return;
     s.agentic.maxToolCallsPerTurn = Math.max(s.agentic.maxToolCallsPerTurn, turnTools);
-    if (turnStart !== null && turnEnd !== null && turnEnd > turnStart) {
-      s.agentic.longestTurnMs = Math.max(s.agentic.longestTurnMs ?? 0, turnEnd - turnStart);
+    if (activeMs > 0) {
+      s.agentic.longestTurnMs = Math.max(s.agentic.longestTurnMs ?? 0, activeMs);
     }
-    inTurn = false;
-    turnStart = null;
-    turnEnd = null;
     turnTools = 0;
   };
 
@@ -176,15 +173,23 @@ export function foldComposer(
       s.counts.userPrompts++;
       s.agentic.turns++;
       workflow.humanTurn();
-      inTurn = true;
-      turnStart = times[0] ?? null;
+      turnClock.start(times[0] ?? null);
     }
-    if (times.length > 0) {
-      turnStart ??= times[0] as number;
-      turnEnd = Math.max(turnEnd ?? 0, times[times.length - 1] as number);
+    for (const t of times) turnClock.tick(t as number);
+    // The same PR rides on bubble after bubble; count distinct PRs, keyed by
+    // whatever identity the entry carries.
+    for (const pr of Array.isArray(b.pullRequests) ? b.pullRequests : []) {
+      const key =
+        typeof pr?.url === "string"
+          ? pr.url
+          : pr?.number != null
+            ? `#${pr.number}`
+            : JSON.stringify(pr);
+      if (!prSeen.has(key)) {
+        prSeen.add(key);
+        s.outcome.prLinks++;
+      }
     }
-    const pullRequests = Array.isArray(b.pullRequests) ? b.pullRequests.length : 0;
-    s.outcome.prLinks += pullRequests;
 
     const model = b.modelInfo?.modelName ?? sessionModel;
     if (typeof model === "string") models.add(model);

@@ -189,3 +189,56 @@ export function newSessionRecord(id: string, projectId: string): SessionRecord {
     },
   };
 }
+
+/**
+ * Idle gaps longer than this between a turn's records don't count toward its
+ * active duration. Long enough that a slow build or a long test run still
+ * counts as agent work; short enough that a session left open overnight no
+ * longer produces a multi-day "turn" (observed: a 66-hour one).
+ */
+export const TURN_IDLE_GAP_MS = 30 * 60 * 1000;
+
+/**
+ * Active duration of one turn: the sum of gaps between consecutive record
+ * timestamps, with idle gaps (> TURN_IDLE_GAP_MS) excluded. Replaces the
+ * prompt-to-last-record subtraction, which counted every hour of untouched
+ * terminal as turn time.
+ *
+ * Usage: `start(ts)` on the record that opens a turn, `tick(ts)` on every
+ * record afterwards (safe to call while closed — it's a no-op), `stop()` to
+ * close. `start(null)` opens a turn whose clock begins at the first
+ * timestamped tick.
+ */
+export class TurnClock {
+  private open = false;
+  private last: number | null = null;
+  private activeMs = 0;
+
+  start(ts: number | null): void {
+    this.open = true;
+    this.last = ts;
+    this.activeMs = 0;
+  }
+
+  tick(ts: number | null): void {
+    if (!this.open || ts === null) return;
+    if (this.last === null) {
+      this.last = ts;
+      return;
+    }
+    const gap = ts - this.last;
+    if (gap <= 0) return;
+    if (gap <= TURN_IDLE_GAP_MS) this.activeMs += gap;
+    this.last = ts;
+  }
+
+  /** Active ms of the closed turn, or null when no turn was open. */
+  stop(): number | null {
+    if (!this.open) return null;
+    const ms = this.activeMs;
+    this.open = false;
+    this.last = null;
+    this.activeMs = 0;
+    return ms;
+  }
+}
