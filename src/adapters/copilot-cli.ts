@@ -11,6 +11,7 @@ import {
   newSessionRecord,
   toIso,
   toMs,
+  TurnClock,
   usageBucket,
 } from "../util.js";
 import { toolOutcome, WorkflowTracker } from "../workflow.js";
@@ -61,7 +62,7 @@ export async function parseSession(
   let cwd: string | null = null;
   let firstTs: number | null = null;
   let lastTs: number | null = null;
-  let turnStart: number | null = null;
+  const turnClock = new TurnClock();
   let turnTools = 0;
   const workflow = new WorkflowTracker({
     sequenceKnown: true,
@@ -69,13 +70,13 @@ export async function parseSession(
     deliveryObservation: true,
   });
 
-  const closeTurn = (endTs: number | null) => {
-    if (turnStart === null) return;
+  const closeTurn = () => {
+    const activeMs = turnClock.stop();
+    if (activeMs === null) return;
     s.agentic.maxToolCallsPerTurn = Math.max(s.agentic.maxToolCallsPerTurn, turnTools);
-    if (endTs !== null && endTs > turnStart) {
-      s.agentic.longestTurnMs = Math.max(s.agentic.longestTurnMs ?? 0, endTs - turnStart);
+    if (activeMs > 0) {
+      s.agentic.longestTurnMs = Math.max(s.agentic.longestTurnMs ?? 0, activeMs);
     }
-    turnStart = null;
     turnTools = 0;
   };
 
@@ -137,11 +138,11 @@ export async function parseSession(
         // `source`-stamped and autopilot-continuation messages are injected by
         // the machine; only what the engineer actually typed is a prompt.
         if (fromSubagent || d.source || d.isAutopilotContinuation === true) break;
-        closeTurn(ts);
+        closeTurn();
         s.counts.userPrompts++;
         s.agentic.turns++;
         workflow.humanTurn();
-        turnStart = ts;
+        turnClock.start(ts);
         break;
       }
       case "assistant.message": {
@@ -185,7 +186,7 @@ export async function parseSession(
       }
       case "abort": {
         s.counts.interruptions++;
-        closeTurn(ts);
+        closeTurn();
         break;
       }
       case "session.error":
@@ -224,8 +225,9 @@ export async function parseSession(
         break;
       }
     }
+    turnClock.tick(ts);
   }
-  closeTurn(lastTs);
+  closeTurn();
 
   if (lastTs !== null && lastTs < ctx.since.getTime()) return null;
   if (s.counts.userPrompts === 0 && s.counts.assistantMessages === 0) return null;

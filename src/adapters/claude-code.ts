@@ -10,6 +10,7 @@ import {
   newSessionRecord,
   toIso,
   toMs,
+  TurnClock,
   usageBucket,
 } from "../util.js";
 import { toolOutcome, WorkflowTracker } from "../workflow.js";
@@ -55,22 +56,23 @@ async function parseSession(
   let compactions = 0;
   let slashCommands = 0;
   let mcpCalls = 0;
-  let turnStart: number | null = null;
+  const turnClock = new TurnClock();
   let turnTools = 0;
   let cwd: string | null = null;
+  const prSeen = new Set<string>();
   const workflow = new WorkflowTracker({
     sequenceKnown: true,
     commandObservation: true,
     deliveryObservation: true,
   });
 
-  const closeTurn = (endTs: number | null) => {
-    if (turnStart === null) return;
+  const closeTurn = () => {
+    const activeMs = turnClock.stop();
+    if (activeMs === null) return;
     s.agentic.maxToolCallsPerTurn = Math.max(s.agentic.maxToolCallsPerTurn, turnTools);
-    if (endTs !== null && endTs > turnStart) {
-      s.agentic.longestTurnMs = Math.max(s.agentic.longestTurnMs ?? 0, endTs - turnStart);
+    if (activeMs > 0) {
+      s.agentic.longestTurnMs = Math.max(s.agentic.longestTurnMs ?? 0, activeMs);
     }
-    turnStart = null;
     turnTools = 0;
   };
 
@@ -107,9 +109,22 @@ async function parseSession(
       case "permission-mode":
         if (typeof r.permissionMode === "string") permissionModes.add(r.permissionMode);
         break;
-      case "pr-link":
-        s.outcome.prLinks++;
+      case "pr-link": {
+        // The same PR is re-recorded many times in one session (observed:
+        // dozens of records for one URL), so count distinct PRs, not records.
+        const prKey =
+          typeof r.prUrl === "string" && r.prUrl
+            ? r.prUrl
+            : r.prNumber != null
+              ? `${r.prRepository ?? ""}#${r.prNumber}`
+              : null;
+        if (prKey === null) s.outcome.prLinks++;
+        else if (!prSeen.has(prKey)) {
+          prSeen.add(prKey);
+          s.outcome.prLinks++;
+        }
         break;
+      }
       case "system":
         if (typeof r.hookCount === "number" && r.hookCount > 0) hookEvents++;
         if (typeof r.subtype === "string" && r.subtype.includes("compact")) compactions++;
@@ -142,15 +157,15 @@ async function parseSession(
         const text = messageText(r.message);
         if (INTERRUPT_MARKERS.some((m) => text.includes(m))) {
           s.counts.interruptions++;
-          closeTurn(ts);
+          closeTurn();
           break;
         }
         if (text.includes("<command-name>")) slashCommands++;
-        closeTurn(ts);
+        closeTurn();
         s.counts.userPrompts++;
         s.agentic.turns++;
         workflow.humanTurn();
-        turnStart = ts;
+        turnClock.start(ts);
         break;
       }
       case "assistant": {
@@ -177,8 +192,11 @@ async function parseSession(
         break;
       }
     }
+    // Every record advances the active-time clock while a turn is open —
+    // including tool-result carriers, which never reach the switch above.
+    turnClock.tick(ts);
   }
-  closeTurn(lastTs);
+  closeTurn();
 
   for (const { model, usage } of usageByRequest.values()) {
     const bucket = usageBucket(s.models, model);

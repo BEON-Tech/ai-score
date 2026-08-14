@@ -11,6 +11,7 @@ import {
   newSessionRecord,
   toIso,
   toMs,
+  TurnClock,
   usageBucket,
 } from "../util.js";
 import { toolOutcome, WorkflowTracker } from "../workflow.js";
@@ -77,7 +78,7 @@ async function parseSession(
   let cwd: string | null = null;
   let firstTs: number | null = null;
   let lastTs: number | null = null;
-  let turnStart: number | null = null;
+  const turnClock = new TurnClock();
   let turnTools = 0;
   // Desktop returns long-running exec results through later wait/write_stdin calls.
   const detachedCalls = new Map<string, string>();
@@ -88,13 +89,13 @@ async function parseSession(
     deliveryObservation: true,
   });
 
-  const closeTurn = (endTs: number | null) => {
-    if (turnStart === null) return;
+  const closeTurn = () => {
+    const activeMs = turnClock.stop();
+    if (activeMs === null) return;
     s.agentic.maxToolCallsPerTurn = Math.max(s.agentic.maxToolCallsPerTurn, turnTools);
-    if (endTs !== null && endTs > turnStart) {
-      s.agentic.longestTurnMs = Math.max(s.agentic.longestTurnMs ?? 0, endTs - turnStart);
+    if (activeMs > 0) {
+      s.agentic.longestTurnMs = Math.max(s.agentic.longestTurnMs ?? 0, activeMs);
     }
-    turnStart = null;
     turnTools = 0;
   };
 
@@ -195,11 +196,11 @@ async function parseSession(
       case "event_msg": {
         switch (p.type) {
           case "user_message":
-            closeTurn(ts);
+            closeTurn();
             s.counts.userPrompts++;
             s.agentic.turns++;
             workflow.humanTurn();
-            turnStart = ts;
+            turnClock.start(ts);
             break;
           case "token_count":
             if (p.info?.total_token_usage) lastTokenTotals = p.info.total_token_usage;
@@ -211,7 +212,7 @@ async function parseSession(
             break;
           case "turn_aborted":
             s.counts.interruptions++;
-            closeTurn(ts);
+            closeTurn();
             break;
           case "error":
             errors++;
@@ -228,8 +229,9 @@ async function parseSession(
         break;
       }
     }
+    turnClock.tick(ts);
   }
-  closeTurn(lastTs);
+  closeTurn();
 
   if (lastTokenTotals) {
     const bucket = usageBucket(s.models, currentModel);
