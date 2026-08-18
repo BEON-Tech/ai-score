@@ -955,8 +955,10 @@ export class WorkflowTracker {
       // The edit → tests pass → tweak → stop pattern: the final change is
       // honestly unverified, but the work was not unchecked — a check passed
       // after an earlier change. Reported separately so the scorer can price
-      // it between "verified at the end" and "never verified".
-      if (finalVerification === "not-run") {
+      // it between "verified at the end" and "never verified". Also reported
+      // when a trailing opaque command leaves the final verdict "unknown":
+      // the earlier pass is measured evidence either way.
+      if (finalVerification === "not-run" || finalVerification === "unknown") {
         stalePass = allChecks.some(({ event }) => event.outcome === "success");
       }
 

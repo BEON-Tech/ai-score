@@ -47,6 +47,19 @@ describe("workflow evidence", () => {
     assert.equal(evidence.stalePass, true);
   });
 
+  it("reports a stale pass when a trailing opaque command hides the final verdict", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit-1", "success");
+    t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
+    t.toolCall("Edit", {}, "edit-2", "success");
+    t.toolCall("Bash", { command: "./deploy.sh" }, "opaque", "success");
+
+    const evidence = t.finish();
+    assert.equal(evidence.finalVerification, "unknown");
+    assert.equal(evidence.stalePass, true);
+  });
+
   it("does not call a never-checked session a stale pass", () => {
     const t = tracker();
     t.humanTurn();
