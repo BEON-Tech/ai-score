@@ -83,7 +83,7 @@ branch names, no repository paths.
 
 | Field              | Type                                                                                                             | Meaning                                                                       |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `harness`          | `claude-code` \| `codex` \| `copilot-cli` \| `copilot-ide` \| `cursor-cli` \| `cursor-ide` \| `opencode` \| `pi` |                                                                               |
+| `harness`          | `claude-code` \| `codex` \| `copilot-cli` \| `copilot-ide` \| `cursor-cli` \| `cursor-ide` |                                                                               |
 | `detected`         | boolean                                                                                                          | whether the harness's data directory exists                                   |
 | `dataPath`         | string                                                                                                           | fixed, well-known location that was scanned (e.g. `~/.claude/projects`)       |
 | `latestVersion`    | string \| null                                                                                                   | most recent harness version seen in the data                                  |
@@ -137,7 +137,7 @@ prints it with the rest of the payload.
 | `counts.interruptions`                             | number                      | times the user aborted the agent mid-turn                                                                                                                         |
 | `tools`                                            | `{ [toolName]: count }`     | tool **names** only, never arguments or outputs                                                                                                                   |
 | `models`                                           | `{ [modelId]: TokenUsage }` | per-model token totals                                                                                                                                            |
-| `costUsd`                                          | number \| null              | cost where the harness records it (OpenCode, pi, Cursor's separately billed requests)                                                                             |
+| `costUsd`                                          | number \| null              | cost where the harness records it (Cursor's separately billed requests)                                                                             |
 | `flags`                                            | object                      | harness-specific structural signals, see below                                                                                                                    |
 | `agentic.turns`                                    | number                      | user-initiated turns                                                                                                                                              |
 | `agentic.maxToolCallsPerTurn`                      | number                      | longest uninterrupted tool-call run in one turn                                                                                                                   |
@@ -214,8 +214,6 @@ Values are numbers, booleans, or arrays of harness-defined enum values.
 - **cursor-cli**: `modes`, `models`, `mcpCalls`, `reasoningBlocks`
 - **cursor-ide**: `modes` (`agent`, `chat`, `plan`), `models`, `mcpCalls`,
   `maxMode`, `isAgentic`, `billedRequests`, `thinkingBlocks`
-- **opencode**: `agents` (agent mode names)
-- **pi**: none yet
 
 ## Cursor
 

@@ -292,14 +292,14 @@ describe("renderReport", () => {
   });
 
   it("marks an undetected harness as not found and still lists it", () => {
-    const out = plain(renderReport(payload([report("pi", { detected: false })])));
-    assert.match(out, /pi/);
+    const out = plain(renderReport(payload([report("codex", { detected: false })])));
+    assert.match(out, /codex/);
     assert.match(out, /not found/);
   });
 
   it("marks a skipped harness and explains why", () => {
     const out = plain(
-      renderReport(payload([report("opencode", { skippedReason: "needs Node >= 22.5" })])),
+      renderReport(payload([report("cursor-cli", { skippedReason: "needs Node >= 22.5" })])),
     );
     assert.match(out, /skipped/);
     assert.match(out, /needs Node >= 22\.5/);

@@ -32,8 +32,6 @@ npx @beon-tech/ai-score logout       # forget the cached token
 | Copilot (VS Code) | VS Code's `workspaceStorage/*/chatSessions/*.json` (stable + Insiders)      |
 | Cursor CLI        | `~/.cursor/chats/**/store.db` (`node:sqlite`)                               |
 | Cursor (app)      | Cursor's `globalStorage/state.vscdb` and `workspaceStorage` (`node:sqlite`) |
-| OpenCode          | `~/.local/share/opencode/opencode.db` (`node:sqlite`)                       |
-| pi                | `~/.pi/agent/sessions/**/*.jsonl`                                           |
 
 Sources marked `node:sqlite` need Node ≥ 22.5; on older Node those harnesses
 report a `skippedReason` and the rest of the scan proceeds.
@@ -118,7 +116,7 @@ whoami              print the account this machine submits as
 
 ```
 --harness <names>   comma-separated subset: claude-code,codex,copilot-cli,
-                    copilot-ide,cursor-cli,cursor-ide,opencode,pi
+                    copilot-ide,cursor-cli,cursor-ide
 --url <url>         ai-score server (default: $AI_SCORE_URL or
                     https://ai-score.beon.tech)
 --no-browser        print the login URL instead of opening a browser
@@ -149,8 +147,6 @@ src/
     codex.ts         on-disk format into the common SessionRecord shape
     cursor-cli.ts
     cursor-ide.ts
-    opencode.ts
-    pi.ts
   auth/
     index.ts         login/logout/whoami orchestration and token resolution
     client.ts        the credential chokepoint (device flow + session lookup)
