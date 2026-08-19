@@ -23,7 +23,7 @@ describe("workflow evidence", () => {
     t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
 
     assert.deepEqual(t.finish(), {
-      classifierVersion: 2,
+      classifierVersion: 3,
       codeChange: "success",
       sequenceKnown: true,
       finalVerification: "passed",
@@ -499,6 +499,148 @@ describe("workflow evidence", () => {
     assert.equal(verificationVerdict("4 tests, 0 failures"), "success");
     assert.equal(verificationVerdict("10 examples, 2 failures"), "failure");
     assert.equal(verificationVerdict("All checks passed!"), "success");
+    // django / unittest
+    assert.equal(verificationVerdict("Ran 42 tests in 0.512s\n\nOK"), "success");
+    assert.equal(verificationVerdict("Ran 42 tests in 0.512s\n\nOK (skipped=2)"), "success");
+    assert.equal(verificationVerdict("Ran 42 tests in 0.5s\n\nFAILED (failures=1)"), "failure");
+    // rails minitest
+    assert.equal(verificationVerdict("12 runs, 30 assertions, 0 failures, 0 errors"), "success");
+    assert.equal(verificationVerdict("12 runs, 30 assertions, 2 failures, 0 errors"), "failure");
+    assert.equal(verificationVerdict("12 runs, 30 assertions, 0 failures, 1 errors"), "failure");
+    // dotnet
+    assert.equal(verificationVerdict("Passed!  - Failed:     0, Passed:     5"), "success");
+    assert.equal(verificationVerdict("Failed!  - Failed:     2, Passed:     3"), "failure");
+    assert.equal(verificationVerdict("Build succeeded.\n    0 Warning(s)"), "success");
+    assert.equal(verificationVerdict("Build FAILED.\n    2 Error(s)"), "failure");
+    // cypress
+    assert.equal(verificationVerdict("  All specs passed!    00:12  4  4"), "success");
+  });
+
+  it("classifies the supported stacks' native check commands", () => {
+    for (const command of [
+      // django / flask / fastapi
+      "python manage.py test",
+      "python3 manage.py test apps.users",
+      "./manage.py test",
+      "django-admin test",
+      "python manage.py check",
+      "uv run python -m pytest",
+      "python3.12 -m pytest",
+      "python -m django test",
+      ".venv/bin/pytest",
+      "coverage run -m pytest",
+      "uv run --extra dev pytest",
+      "uv pytest",
+      "python -m mypy src",
+      // rails
+      "rails test",
+      "bin/rails test:models",
+      "bundle exec rails test",
+      "bin/rspec",
+      "bin/rake test",
+      "rake test:units",
+      "rails spec",
+      "bin/rails spec",
+      "rake spec",
+      // react / node / typescript
+      "npm t",
+      "npm run test-unit",
+      "pnpm run test.e2e",
+      "npx playwright test",
+      "cypress run",
+      "react-scripts test",
+      "next build",
+      "vite build",
+      "next lint",
+      "mocha",
+      "npm exec vitest",
+      "node_modules/.bin/jest",
+      "pnpm turbo run test",
+      "nx test",
+      "vue-tsc",
+      "hatch test",
+      // custom runners
+      "just test",
+      "./scripts/test.sh",
+      "bash scripts/run-tests.sh",
+      // dotnet
+      "dotnet test",
+      "dotnet build",
+      "dotnet watch test",
+      "dotnet vstest",
+    ]) {
+      const t = tracker();
+      t.humanTurn();
+      t.toolCall("Edit", {}, "edit", "success");
+      t.toolCall("Bash", { command }, command, "success");
+      assert.equal(t.finish().finalVerification, "passed", command);
+    }
+  });
+
+  it("recognises versioned python and venv checks inside a chain", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "cd app && python3.12 -m pytest" }, "test", "success");
+    const evidence = t.finish();
+    assert.equal(evidence.finalVerification, "passed");
+    assert.deepEqual(evidence.verificationKinds, ["test"]);
+  });
+
+  it("reads a wrapped custom script as a test from the runner banner", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "./scripts/ci.sh" }, "ci");
+    t.toolResult("success", "ci", null, "===== 5 passed in 0.12s =====");
+    const evidence = t.finish();
+    assert.equal(evidence.finalVerification, "passed");
+    assert.deepEqual(evidence.verificationKinds, ["test"]);
+  });
+
+  it("does not treat deploy or migrate scripts as checks", () => {
+    for (const [command, output] of [
+      ["./deploy.sh", "Build succeeded.\n    0 Warning(s)"],
+      ["./migrate.sh", ""],
+    ]) {
+      const t = tracker();
+      t.humanTurn();
+      t.toolCall("Edit", {}, "edit", "success");
+      t.toolCall("Bash", { command }, "script");
+      t.toolResult("success", "script", null, output);
+      const evidence = t.finish();
+      assert.equal(evidence.finalVerification, "unknown", command);
+      assert.deepEqual(evidence.verificationKinds, [], command);
+    }
+  });
+
+  it("does not treat POSIX test as a check", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "test -f package.json" }, "posix", "success");
+    const evidence = t.finish();
+    assert.equal(evidence.finalVerification, "unknown");
+    assert.deepEqual(evidence.verificationKinds, []);
+  });
+
+  it("reads a check's own summary when a || fallback consumed its exit code", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pytest || echo failed" }, "test");
+    t.toolResult("success", "test", null, "1 failed, 3 passed in 0.2s");
+    const evidence = t.finish();
+    assert.equal(evidence.finalVerification, "failed");
+    assert.deepEqual(evidence.verificationKinds, ["test"]);
+  });
+
+  it("does not count a denied check as a check that ran", () => {
+    const t = tracker();
+    t.humanTurn();
+    t.toolCall("Edit", {}, "edit", "success");
+    t.toolCall("Bash", { command: "pnpm test" }, "test", "not-run");
+    assert.deepEqual(t.finish().verificationKinds, []);
   });
 
   it("reads oxlint and oxfmt summaries as check verdicts", () => {

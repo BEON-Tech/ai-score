@@ -154,7 +154,7 @@ Present in reports produced by clients with workflow classification support:
 
 | Field                      | Type                                           | Meaning                                                                 |
 | -------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
-| `classifierVersion`        | `2`                                            | local classifier contract version                                       |
+| `classifierVersion`        | `3`                                            | local classifier contract version                                       |
 | `codeChange`               | `success` \| `failure` \| `none` \| `unknown`  | whether a code-mutating tool produced an observable change              |
 | `sequenceKnown`            | boolean                                        | whether native records preserved reliable event order                   |
 | `finalVerification`        | `passed` \| `failed` \| `not-run` \| `unknown` | state of checks after the final successful code change                  |

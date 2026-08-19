@@ -306,6 +306,87 @@ function stripHeredocs(raw: string): string {
   );
 }
 
+const RUNNER_PREFIX =
+  /^(?:npx|bunx|uvx|(?:npm|pnpm|yarn)\s+(?:exec|dlx|x)|bun\s+x|(?:uv|poetry|pipenv|hatch)\s+run|bundle\s+exec)(?=\s|$)/;
+const VALUE_FLAG = /^(?:--extra|--with|--group|--directory|--project|--package|-p|--cwd|--python)$/;
+const TASK_TARGET =
+  /^(?:(?:(?:pnpm|npm|yarn|bun)\s+)?(?:nx|turbo)\s+(?:run\s+)?(?:[\w.-]+[:])?|(?:just|task|invoke)\s+)(typecheck|type-check|check-types|vitest|jest|mocha|test|spec|lint|build|t)(?:[:._-][a-z0-9:._-]*)?(?:\s|$)/;
+
+function stripCommandPrefixes(raw: string): string {
+  let command = raw
+    .trim()
+    .toLowerCase()
+    .replace(/^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*/, "")
+    .replace(/^py(?:thon)?\s+-\d+(?:\.\d+)?\s+/, "python ")
+    .replace(/^py\s+/, "python ")
+    .replace(/\bpython3\.\d+\b/g, "python3")
+    .replace(/^(?:bash|sh|zsh|fish|cmd|pwsh|powershell)(?=\s+[^-\s])\s+/, "");
+  for (;;) {
+    const prefix = command.match(RUNNER_PREFIX);
+    if (!prefix) break;
+    command = command.slice(prefix[0].length).trimStart();
+    while (true) {
+      const token = command.match(/^(\S+)(?:\s+|$)/);
+      if (!token || !token[1].startsWith("-")) break;
+      const rawFlag = token[1];
+      command = command.slice(token[0].length);
+      const flag = rawFlag.replace(/=[\s\S]*$/, "");
+      if (rawFlag !== "--" && !rawFlag.includes("=") && VALUE_FLAG.test(flag)) {
+        const value = command.match(/^\S+(?:\s+|$)/);
+        if (value && !value[0].startsWith("-")) command = command.slice(value[0].length);
+      }
+    }
+  }
+  return command
+    .replace(/^(?:python3?\s+-m\s+)?coverage\s+run(?:\s+-+[^\s]+)*\s+(?:-m\s+)?/, "")
+    .replace(/^(?:[a-z]:)?[/\\]?(?:\.\/)?(?:\S+?[/\\])*(?:\.?bin|scripts)[/\\]/i, "")
+    .replace(/^(\S+)\.exe\b/i, "$1");
+}
+
+function targetKind(name: string): VerificationKind {
+  if (name === "lint") return "lint";
+  if (name === "build") return "build";
+  if (name === "typecheck" || name === "type-check" || name === "check-types") return "typecheck";
+  return "test";
+}
+
+function namedCheck(command: string): Classified | null {
+  const task = command.match(TASK_TARGET);
+  if (task) return { kind: "verification", verificationKind: targetKind(task[1]) };
+  const token = (command.split(/\s+/, 1)[0] ?? "").replace(/\.exe$/i, "");
+  const base = token
+    .replace(/^.*[/\\]/, "")
+    .replace(/\.(?:sh|bash|zsh|fish|ps1|cmd|bat|py|rb|js|mjs|cjs|ts)$/i, "");
+  const pathed = /[/\\]/.test(token) || token !== base;
+  if (/^(?:run[-_])?(?:tests?|specs?)$/.test(base)) {
+    if (/^(?:tests?|specs?)$/.test(base) && !pathed) return null;
+    return { kind: "verification", verificationKind: "test" };
+  }
+  if (!pathed) return null;
+  if (/^(?:typecheck|type-check|check-types)$/.test(base)) {
+    return { kind: "verification", verificationKind: "typecheck" };
+  }
+  if (base === "lint") return { kind: "verification", verificationKind: "lint" };
+  if (base === "build") return { kind: "verification", verificationKind: "build" };
+  return null;
+}
+
+/** Test-runner summaries only — not build/lint banners, so ./deploy.sh stays opaque. */
+function looksLikeTestRunner(text: string): boolean {
+  const tail = text.slice(-20_000);
+  return (
+    /\b\d+\s+(?:fail(?:ed|ing|ures?)?|pass(?:ed|ing)?)\b/i.test(tail) ||
+    /\b(?:fail|pass)(?:ed)?\s+\d+\b/i.test(tail) ||
+    /\bfailed\s+\(failures?=/i.test(tail) ||
+    /\bran\s+\d+\s+tests?\b/i.test(tail) ||
+    /\b\d+ (?:examples?|tests?), \d+ failures\b/.test(tail) ||
+    /\b\d+ runs, \d+ assertions,/.test(tail) ||
+    /\btest result: ok\b/i.test(tail) ||
+    /\b(?:passed|failed):\s*\d+/i.test(tail) ||
+    /\ball specs passed\b/i.test(tail)
+  );
+}
+
 function classifyCommand(rawInput: string): Classified | null {
   const raw = stripHeredocs(rawInput);
   // Separators inside quotes (`grep -E "a|b"`, heredoc commit messages) are
@@ -318,9 +399,17 @@ function classifyCommand(rawInput: string): Classified | null {
   // the conservative outcome.
   if (masked.includes("||")) {
     const alternatives = masked.split("||").map((segment) => classifyCommand(segment));
-    return alternatives.every((part) => part?.kind === "observation")
-      ? { kind: "observation" }
-      : null;
+    if (alternatives.every((part) => part?.kind === "observation")) {
+      return { kind: "observation" };
+    }
+    // `pytest || echo failed` / `pnpm test || true`: the fallback consumes
+    // the exit code, but the check ran and its own summary line still carries
+    // the verdict — the same exit-unreliable footing as a trailing `| tail`.
+    const active = alternatives.filter((part) => part?.kind !== "observation");
+    if (active.length === 1 && active[0]?.kind === "verification") {
+      return { ...active[0], exitUnreliable: true };
+    }
+    return null;
   }
   // `cd app && pnpm build && pnpm test 2>&1 | tail -8` is how agents actually
   // run checks. A chain classifies as its strongest classifiable segment —
@@ -374,16 +463,7 @@ function classifyCommand(rawInput: string): Classified | null {
     }
     return { ...finalize(delivery), chainedVerification: chained };
   }
-  const command = raw
-    .trim()
-    .toLowerCase()
-    .replace(/^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*/, "")
-    // `pnpm exec tsc`, `npx vitest`, `uv run pytest` and `bundle exec rspec`
-    // are the same checks as the bare tools; the runner adds nothing.
-    .replace(
-      /^(?:npx|bunx|(?:pnpm|yarn)\s+(?:exec|dlx)|bun\s+x|(?:uv|poetry|pipenv|hatch)\s+run|bundle\s+exec)(?:\s+-+[a-z-]+)*\s+/,
-      "",
-    );
+  const command = stripCommandPrefixes(raw);
   if (!command) return null;
   const optionCommand = command.replace(/"[^"]*"|'[^']*'/g, "Q");
   if (
@@ -406,17 +486,25 @@ function classifyCommand(rawInput: string): Classified | null {
     return { kind: "verification", verificationKind: "lint" };
   }
   if (
-    /^(?:pnpm|npm|yarn|bun)(?:\s+run)?\s+(?:test|vitest|jest)(?::[a-z0-9:_-]+)?(?:\s|$)/.test(
+    // `t` is npm's built-in alias for `test`; `[:._-]` suffixes cover the
+    // test:e2e / test-unit / test.watch script-naming conventions alike.
+    /^(?:pnpm|npm|yarn|bun)(?:\s+run)?\s+(?:test|t|vitest|jest)(?:[:._-][a-z0-9:._-]+)?(?:\s|$)/.test(
       command,
     ) ||
-    /^(?:(?:npx|pnpm|yarn|bun)\s+(?:exec\s+)?)?(?:vitest|jest|pytest|phpunit|pest|rspec|tox)(?:\s|$)/.test(
+    /^(?:(?:npx|pnpm|yarn|bun)\s+(?:exec\s+)?)?(?:vitest|jest|mocha|pytest|phpunit|pest|rspec|tox)(?:\s|$)/.test(
       command,
     ) ||
+    /^(?:uv\s+pytest|hatch\s+test)(?:\s|$)/.test(command) ||
+    /^(?:(?:react-scripts|playwright)\s+test|cypress\s+run)(?:\s|$)/.test(command) ||
     /^(?:\.\/)?vendor\/bin\/(?:phpunit|pest)(?:\s|$)/.test(command) ||
-    /^python(?:3)?\s+-m\s+(?:pytest|unittest)(?:\s|$)/.test(command) ||
-    /^(?:go|cargo|dotnet|mix|deno|dart|flutter|swift)\s+test(?:\s|$)/.test(command) ||
+    /^python(?:3)?\s+-m\s+(?:pytest|unittest|django\s+test)(?:\s|$)/.test(command) ||
+    // Django's canonical runners, standalone or via `python`.
+    /^(?:(?:python3?\s+)?(?:\.\/)?manage\.py|django-admin)\s+test(?:\s|$)/.test(command) ||
+    /^(?:go|cargo|mix|deno|dart|flutter|swift)\s+test(?:\s|$)/.test(command) ||
+    /^dotnet\s+(?:watch\s+)?(?:test|vstest)(?:\s|$)/.test(command) ||
     /^zig\s+(?:build\s+)?test(?:\s|$)/.test(command) ||
-    /^(?:rake|composer|php\s+artisan)\s+test(?:\s|$)/.test(command) ||
+    /^(?:rails|rake)\s+(?:test|spec)(?::[a-z0-9:_-]+)?(?:\s|$)/.test(command) ||
+    /^(?:composer|php\s+artisan)\s+test(?::[a-z0-9:_-]+)?(?:\s|$)/.test(command) ||
     /^(?:make\s+(?:test|check)|ctest)(?:\s|$)/.test(command) ||
     /^(?:\.\/)?(?:mvn|mvnw)(?:\s+[^\s]+)*\s+test(?:\s|$)/.test(command) ||
     /^(?:\.\/)?(?:gradle|gradlew)(?:\s+[^\s]+)*\s+test(?:\s|$)/.test(command) ||
@@ -432,22 +520,27 @@ function classifyCommand(rawInput: string): Classified | null {
     };
   }
   if (
-    /^(?:pnpm|npm|yarn|bun)(?:\s+run)?\s+(?:typecheck|type-check|check-types)(?::[a-z0-9:_-]+)?(?:\s|$)/.test(
+    /^(?:pnpm|npm|yarn|bun)(?:\s+run)?\s+(?:typecheck|type-check|check-types)(?:[:._-][a-z0-9:._-]+)?(?:\s|$)/.test(
       command,
     ) ||
-    /^(?:npx\s+)?tsc(?:\s|$)/.test(command) ||
+    /^(?:npx\s+)?(?:tsc|vue-tsc)(?:\s|$)/.test(command) ||
     /^(?:mypy|pyright|go\s+vet|cargo\s+check|deno\s+check|phpstan|psalm)(?:\s|$)/.test(command) ||
+    /^python(?:3)?\s+-m\s+(?:mypy|pyright)(?:\s|$)/.test(command) ||
     /^(?:dart|flutter)\s+analyze(?:\s|$)/.test(command)
   ) {
     return {
       kind: "verification",
       verificationKind: "typecheck",
-      failureMarked: /^(?:pnpm|npm|yarn)(?:\s+run)?\s|^(?:npx\s+)?tsc(?:\s|$)/.test(command),
+      failureMarked: /^(?:pnpm|npm|yarn)(?:\s+run)?\s|^(?:npx\s+)?(?:tsc|vue-tsc)(?:\s|$)/.test(
+        command,
+      ),
     };
   }
   if (
-    /^(?:pnpm|npm|yarn|bun)(?:\s+run)?\s+build(?::[a-z0-9:_-]+)?(?:\s|$)/.test(command) ||
+    /^(?:pnpm|npm|yarn|bun)(?:\s+run)?\s+build(?:[:._-][a-z0-9:._-]+)?(?:\s|$)/.test(command) ||
     /^(?:go|cargo|dotnet|swift|flutter)\s+build(?:\s|$)/.test(command) ||
+    // The JS framework CLIs agents call directly (usually via a stripped npx).
+    /^(?:next|vite|react-scripts|astro|remix)\s+build(?:\s|$)/.test(command) ||
     /^zig\s+build(?!\s+test)(?:\s|$)/.test(command) ||
     /^mix\s+compile(?:\s|$)/.test(command) ||
     /^make(?:\s+(?:build|all))?$/.test(command) ||
@@ -465,11 +558,14 @@ function classifyCommand(rawInput: string): Classified | null {
   }
   if (
     // plain `fmt`/`format` rewrites files; only the check variants verify.
-    /^(?:pnpm|npm|yarn|bun)(?:\s+run)?\s+(?:lint(?::[a-z0-9:_-]+)?|(?:fmt|format):check)(?:\s|$)/.test(
+    /^(?:pnpm|npm|yarn|bun)(?:\s+run)?\s+(?:lint(?:[:._-][a-z0-9:._-]+)?|(?:fmt|format):check)(?:\s|$)/.test(
       command,
     ) ||
     /^(?:npx\s+)?oxfmt\s+--check(?:\s|$)/.test(command) ||
     /^(?:npx\s+)?(?:eslint|oxlint)(?:\s|$)/.test(command) ||
+    /^next\s+lint(?:\s|$)/.test(command) ||
+    // Django's system check verifies configuration without touching files.
+    /^(?:(?:python3?\s+)?(?:\.\/)?manage\.py|django-admin)\s+check(?:\s|$)/.test(command) ||
     /^(?:ruff\s+check|biome\s+check|cargo\s+clippy|golangci-lint|staticcheck)(?:\s|$)/.test(
       command,
     ) ||
@@ -487,6 +583,8 @@ function classifyCommand(rawInput: string): Classified | null {
       failureMarked: /^(?:pnpm|npm|yarn)(?:\s+run)?\s/.test(command),
     };
   }
+  const custom = namedCheck(command);
+  if (custom) return custom;
   // Descriptor redirects and /dev/null do not touch project files. Other `>`
   // targets can turn even `echo` into a write, so they stay unclassified.
   const observationCommand = command
@@ -603,6 +701,9 @@ export function verificationVerdict(text: string): ToolOutcome {
     /✖ \d+ problems?\b/.test(tail) || // eslint
     /\bfound \d+ warnings? and (?!0\b)\d+ errors?\b/i.test(tail) || // oxlint
     /\bBUILD FAIL(?:ED|URE)\b/.test(tail) || // gradle / maven
+    /\bBuild FAILED\b/.test(tail) || // dotnet build / msbuild
+    /\bfailed:\s*[1-9]\d*\b/i.test(tail) || // dotnet test "Failed: 2"
+    /\b\d+ runs, \d+ assertions, \d+ failures, [1-9]\d* errors\b/.test(tail) || // minitest errors
     /^make: \*\*\*/m.test(tail) // make target exited non-zero
   ) {
     return "failure";
@@ -616,6 +717,11 @@ export function verificationVerdict(text: string): ToolOutcome {
     /\ball matched files use the correct format\b/i.test(tail) || // oxfmt --check
     /\bBUILD SUCCESS(?:FUL)?\b/.test(tail) || // maven / gradle
     /\b\d+ (?:examples?|tests?), 0 failures\b/.test(tail) || // rspec / exunit
+    /\b\d+ runs, \d+ assertions, 0 failures, 0 errors\b/.test(tail) || // minitest / rails test
+    /^OK(?: \(skipped=\d+\))?\s*$/m.test(tail) || // unittest / django (FAILED caught above)
+    /\bpassed:\s*[1-9]\d*\b/i.test(tail) || // dotnet test "Passed: 5" (Failed > 0 caught above)
+    /\bBuild succeeded\b/.test(tail) || // dotnet build / msbuild
+    /\ball specs passed\b/i.test(tail) || // cypress
     /\ball checks passed\b/i.test(tail) // ruff
   ) {
     return "success";
@@ -786,6 +892,16 @@ export class WorkflowTracker {
       event.companion = undefined;
       this.settle(companion, outcome, resultText);
     }
+    if (
+      event.kind === "unknown-shell" &&
+      typeof resultText === "string" &&
+      looksLikeTestRunner(resultText) &&
+      verificationVerdict(resultText) !== "unknown"
+    ) {
+      event.kind = "verification";
+      event.verificationKind = "test";
+      event.exitUnreliable = true;
+    }
     if (event.exitUnreliable) {
       let verdict: ToolOutcome =
         event.kind === "verification" && typeof resultText === "string"
@@ -878,10 +994,12 @@ export class WorkflowTracker {
     let stalePass: boolean | null = null;
     let autonomousVerifiedChange: boolean | null = null;
     let recoveredFromFailure: boolean | null = null;
+    // A denied or cancelled check never ran, so it is not evidence a check
+    // ran — `verificationKinds` answers "did any check run?" downstream.
     const verificationKinds = [
       ...new Set(
         events
-          .filter((event) => event.kind === "verification")
+          .filter((event) => event.kind === "verification" && event.outcome !== "not-run")
           .map((event) => event.verificationKind)
           .filter((kind): kind is VerificationKind => kind !== undefined),
       ),
@@ -994,7 +1112,12 @@ export class WorkflowTracker {
     return {
       // v2: agent-state writes (memory notes, scratchpads, harness config)
       // classify as observation instead of mutation.
-      classifierVersion: 2,
+      // v3: stack coverage for Django/Rails/.NET/React (manage.py, rails
+      // test, binstubs, framework CLIs), `check || fallback` chains, denied
+      // checks no longer count as run, and dotnet/minitest/unittest verdicts.
+      // Wrappers (venv, versioned python, coverage, nx/turbo) and custom
+      // test scripts (safe names + test-runner banners) classify as checks.
+      classifierVersion: 3,
       codeChange,
       sequenceKnown: this.sequenceKnown,
       finalVerification,
