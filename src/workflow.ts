@@ -339,7 +339,12 @@ function stripCommandPrefixes(raw: string): string {
   }
   return command
     .replace(/^(?:python3?\s+-m\s+)?coverage\s+run(?:\s+-+[^\s]+)*\s+(?:-m\s+)?/, "")
-    .replace(/^(?:[a-z]:)?[/\\]?(?:\.\/)?(?:\S+?[/\\])*(?:\.?bin|scripts)[/\\]/i, "")
+    // Each repeated unit ends at exactly one separator ([^\s/\\]* cannot
+    // cross it), so a non-matching path fails in linear time. The previous
+    // (?:\S+?[/\\])* let \S eat separators too, and a long slash-filled token
+    // that never reaches bin/ or scripts/ backtracked exponentially — codex
+    // desktop's JS exec cells froze whole scans on it.
+    .replace(/^(?:[a-z]:)?[/\\]?(?:[^\s/\\]*[/\\])*(?:\.?bin|scripts)[/\\]/i, "")
     .replace(/^(\S+)\.exe\b/i, "$1");
 }
 
