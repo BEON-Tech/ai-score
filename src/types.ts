@@ -11,9 +11,7 @@ export type HarnessName =
   | "copilot-cli"
   | "copilot-ide"
   | "cursor-cli"
-  | "cursor-ide"
-  | "opencode"
-  | "pi";
+  | "cursor-ide";
 
 export interface TokenUsage {
   input: number;

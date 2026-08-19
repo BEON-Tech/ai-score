@@ -44,7 +44,7 @@ Usage
   npx @beon-tech/ai-score logout           forget the cached token
   npx @beon-tech/ai-score whoami           show who this machine is signed in as
 
-Scans local session data from Claude Code, Codex, Cursor, OpenCode and pi,
+Scans local session data from Claude Code, Codex, Cursor and GitHub Copilot,
 normalizes it into structural metadata and locally derived workflow states.
 Tool arguments, result statuses and check output are inspected only long
 enough to classify edits and checks; their raw values, code, prompts, paths
@@ -53,7 +53,7 @@ you sign in as.
 
 Options
   --harness <names>   comma-separated subset: claude-code,codex,copilot-cli,
-                      copilot-ide,cursor-cli,cursor-ide,opencode,pi
+                      copilot-ide,cursor-cli,cursor-ide
   --url <url>         ai-score server (default: $AI_SCORE_URL or
                       ${DEFAULT_BASE_URL})
   --no-browser        never open a browser — print login and report URLs only

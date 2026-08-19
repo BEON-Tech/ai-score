@@ -5,8 +5,6 @@ import { copilotCli } from "./copilot-cli.js";
 import { copilotIde } from "./copilot-ide.js";
 import { cursorCli } from "./cursor-cli.js";
 import { cursorIde } from "./cursor-ide.js";
-import { opencode } from "./opencode.js";
-import { pi } from "./pi.js";
 
 export const adapters: Adapter[] = [
   claudeCode,
@@ -15,6 +13,4 @@ export const adapters: Adapter[] = [
   copilotIde,
   cursorCli,
   cursorIde,
-  opencode,
-  pi,
 ];
