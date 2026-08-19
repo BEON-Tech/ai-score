@@ -177,7 +177,7 @@ export function newSessionRecord(id: string, projectId: string): SessionRecord {
       localCommits: null,
     },
     workflow: {
-      classifierVersion: 2,
+      classifierVersion: 3,
       codeChange: "none",
       sequenceKnown: false,
       finalVerification: "unknown",
