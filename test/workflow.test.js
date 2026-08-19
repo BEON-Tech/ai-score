@@ -577,6 +577,21 @@ describe("workflow evidence", () => {
     }
   });
 
+  it("classifies long slash-heavy opaque commands in linear time", () => {
+    // codex desktop exec cells pass JS source as the command; the path-prefix
+    // stripper's old (?:\S+?[/\\])* backtracked exponentially on tokens like
+    // this and froze whole scans.
+    const command =
+      'const r = await Promise.all([tools.exec_command({cmd:"sed -n 1,220p ' +
+      "/Users/x/.codex/skills/vercel-react-best-practices/deep/nested/path/with/many/parts/SKILL.md" +
+      '",workdir:"/Users/x/.codex/worktrees/9a83/admin-dashboard"})])';
+    const t = tracker();
+    t.humanTurn();
+    const start = performance.now();
+    t.toolCall("exec", command, "opaque", "success");
+    assert.ok(performance.now() - start < 1000, "classification must not backtrack");
+  });
+
   it("recognises versioned python and venv checks inside a chain", () => {
     const t = tracker();
     t.humanTurn();
