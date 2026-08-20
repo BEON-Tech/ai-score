@@ -32,6 +32,8 @@ export const CAPABILITIES: Record<HarnessName, HarnessCapabilities> = {
     interruptions: "measured",
     checkVerdicts: "measured",
     localCommits: "measured",
+    compactions: "measured",
+    peakContextTokens: "measured",
   },
   codex: {
     filesChanged: "estimated",
@@ -47,6 +49,8 @@ export const CAPABILITIES: Record<HarnessName, HarnessCapabilities> = {
     interruptions: "measured",
     checkVerdicts: "measured",
     localCommits: "measured",
+    compactions: "unobservable",
+    peakContextTokens: "unobservable",
   },
   "copilot-cli": {
     // `session.shutdown` carries real diff stats; a crashed session falls
@@ -64,6 +68,8 @@ export const CAPABILITIES: Record<HarnessName, HarnessCapabilities> = {
     interruptions: "measured",
     checkVerdicts: "measured",
     localCommits: "measured",
+    compactions: "unobservable",
+    peakContextTokens: "unobservable",
   },
   "copilot-ide": {
     // Distinct edited-file URIs; the serialized format never stores line
@@ -81,6 +87,8 @@ export const CAPABILITIES: Record<HarnessName, HarnessCapabilities> = {
     interruptions: "measured",
     checkVerdicts: "unobservable",
     localCommits: "measured",
+    compactions: "unobservable",
+    peakContextTokens: "unobservable",
   },
   "cursor-cli": {
     filesChanged: "estimated",
@@ -98,6 +106,8 @@ export const CAPABILITIES: Record<HarnessName, HarnessCapabilities> = {
     interruptions: "unobservable",
     checkVerdicts: "measured",
     localCommits: "unobservable",
+    compactions: "unobservable",
+    peakContextTokens: "unobservable",
   },
   "cursor-ide": {
     filesChanged: "measured",
@@ -113,5 +123,7 @@ export const CAPABILITIES: Record<HarnessName, HarnessCapabilities> = {
     interruptions: "measured",
     checkVerdicts: "measured",
     localCommits: "measured",
+    compactions: "unobservable",
+    peakContextTokens: "unobservable",
   },
 };

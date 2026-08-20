@@ -132,6 +132,13 @@ export interface HarnessCapabilities {
    */
   checkVerdicts: SignalCapability;
   localCommits: SignalCapability;
+  /**
+   * Whether the harness records context-window compaction events (the
+   * `compactions` / `autoCompactions` / `manualCompactions` session flags).
+   */
+  compactions: SignalCapability;
+  /** Whether per-request prompt tokens let the peak context size be derived. */
+  peakContextTokens: SignalCapability;
 }
 
 export interface HarnessReport {
