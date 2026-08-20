@@ -81,18 +81,18 @@ branch names, no repository paths.
 
 ## `HarnessReport`
 
-| Field              | Type                                                                                                             | Meaning                                                                       |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Field              | Type                                                                                       | Meaning                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
 | `harness`          | `claude-code` \| `codex` \| `copilot-cli` \| `copilot-ide` \| `cursor-cli` \| `cursor-ide` |                                                                               |
-| `detected`         | boolean                                                                                                          | whether the harness's data directory exists                                   |
-| `dataPath`         | string                                                                                                           | fixed, well-known location that was scanned (e.g. `~/.claude/projects`)       |
-| `latestVersion`    | string \| null                                                                                                   | most recent harness version seen in the data                                  |
-| `sessionsScanned`  | number                                                                                                           | sessions on disk (all time)                                                   |
-| `sessionsIncluded` | number                                                                                                           | sessions inside the window                                                    |
-| `parseErrors`      | number                                                                                                           | records that failed to parse and were skipped                                 |
-| `skippedReason`    | string \| null                                                                                                   | why a detected harness produced no data (e.g. Node too old for `node:sqlite`) |
-| `capabilities`     | object                                                                                                           | what this adapter can observe, per signal — see below                         |
-| `sessions`         | `SessionRecord[]`                                                                                                |                                                                               |
+| `detected`         | boolean                                                                                    | whether the harness's data directory exists                                   |
+| `dataPath`         | string                                                                                     | fixed, well-known location that was scanned (e.g. `~/.claude/projects`)       |
+| `latestVersion`    | string \| null                                                                             | most recent harness version seen in the data                                  |
+| `sessionsScanned`  | number                                                                                     | sessions on disk (all time)                                                   |
+| `sessionsIncluded` | number                                                                                     | sessions inside the window                                                    |
+| `parseErrors`      | number                                                                                     | records that failed to parse and were skipped                                 |
+| `skippedReason`    | string \| null                                                                             | why a detected harness produced no data (e.g. Node too old for `node:sqlite`) |
+| `capabilities`     | object                                                                                     | what this adapter can observe, per signal — see below                         |
+| `sessions`         | `SessionRecord[]`                                                                          |                                                                               |
 
 ### `capabilities`
 
@@ -113,7 +113,11 @@ for each evidence signal, one of three values:
 The declared signals: `filesChanged`, `additions`, `deletions`, `prLinks`,
 `distinctGitBranches`, `costUsd`, `cacheTokens`, `longestTurnMs`,
 `toolErrors`, `toolDenials`, `interruptions`, `checkVerdicts`,
-`localCommits`. `checkVerdicts` states
+`localCommits`, `compactions`, `peakContextTokens`. `compactions` covers the
+three compaction flags (`compactions`, `autoCompactions`, `manualCompactions`)
+and `peakContextTokens` whether per-request prompt tokens let the peak context
+size be derived — both feed a server-side diagnostic, never ranked points.
+`checkVerdicts` states
 whether check output text reaches the workflow classifier, so piped checks
 (`pnpm test | tail -8`) can settle on the runner's own summary line; where it
 is `unobservable`, `finalVerification: "unknown"` is the format's ceiling, not
@@ -137,7 +141,7 @@ prints it with the rest of the payload.
 | `counts.interruptions`                             | number                      | times the user aborted the agent mid-turn                                                                                                                         |
 | `tools`                                            | `{ [toolName]: count }`     | tool **names** only, never arguments or outputs                                                                                                                   |
 | `models`                                           | `{ [modelId]: TokenUsage }` | per-model token totals                                                                                                                                            |
-| `costUsd`                                          | number \| null              | cost where the harness records it (Cursor's separately billed requests)                                                                             |
+| `costUsd`                                          | number \| null              | cost where the harness records it (Cursor's separately billed requests)                                                                                           |
 | `flags`                                            | object                      | harness-specific structural signals, see below                                                                                                                    |
 | `agentic.turns`                                    | number                      | user-initiated turns                                                                                                                                              |
 | `agentic.maxToolCallsPerTurn`                      | number                      | longest uninterrupted tool-call run in one turn                                                                                                                   |
@@ -208,7 +212,11 @@ Normalization is deliberately the server's job; the client reports raw values.
 Values are numbers, booleans, or arrays of harness-defined enum values.
 
 - **claude-code**: `modes` (e.g. `plan`), `permissionModes`, `sidechainMessages`,
-  `subagentRuns`, `hookEvents`, `compactions`, `slashCommands`, `mcpCalls`
+  `subagentRuns`, `hookEvents`, `compactions`, `autoCompactions`,
+  `manualCompactions` (compaction boundaries split by trigger; a triggerless
+  boundary counts only into the total), `peakContextTokens` (max per-request
+  prompt tokens — absent, not zero, when no usage was recorded),
+  `slashCommands`, `mcpCalls`
 - **codex**: `models`, `efforts`, `approvalPolicies`, `collaborationModes`,
   `mcpCalls`, `errors`, `gitRepo`
 - **cursor-cli**: `modes`, `models`, `mcpCalls`, `reasoningBlocks`

@@ -37,7 +37,7 @@ function isToolResultCarrier(record: any): boolean {
   );
 }
 
-async function parseSession(
+export async function parseSession(
   file: string,
   projectSlug: string,
   nativeId: string,
@@ -54,6 +54,9 @@ async function parseSession(
   let sidechainMessages = 0;
   let hookEvents = 0;
   let compactions = 0;
+  let autoCompactions = 0;
+  let manualCompactions = 0;
+  let peakContextTokens = 0;
   let slashCommands = 0;
   let mcpCalls = 0;
   const turnClock = new TurnClock();
@@ -127,7 +130,14 @@ async function parseSession(
       }
       case "system":
         if (typeof r.hookCount === "number" && r.hookCount > 0) hookEvents++;
-        if (typeof r.subtype === "string" && r.subtype.includes("compact")) compactions++;
+        if (typeof r.subtype === "string" && r.subtype.includes("compact")) {
+          compactions++;
+          // A boundary without a trigger counts only into the total, so
+          // autoCompactions + manualCompactions ≤ compactions by construction.
+          const trigger = r.compactMetadata?.trigger;
+          if (trigger === "auto") autoCompactions++;
+          else if (trigger === "manual") manualCompactions++;
+        }
         break;
       case "user": {
         const content = Array.isArray(r.message?.content) ? r.message.content : [];
@@ -200,10 +210,16 @@ async function parseSession(
 
   for (const { model, usage } of usageByRequest.values()) {
     const bucket = usageBucket(s.models, model);
-    bucket.input += Number(usage.input_tokens) || 0;
+    const input = Number(usage.input_tokens) || 0;
+    const cacheRead = Number(usage.cache_read_input_tokens) || 0;
+    const cacheWrite = Number(usage.cache_creation_input_tokens) || 0;
+    bucket.input += input;
     bucket.output += Number(usage.output_tokens) || 0;
-    bucket.cacheRead += Number(usage.cache_read_input_tokens) || 0;
-    bucket.cacheWrite += Number(usage.cache_creation_input_tokens) || 0;
+    bucket.cacheRead += cacheRead;
+    bucket.cacheWrite += cacheWrite;
+    // One request's prompt tokens ≈ the live context at that moment; the max
+    // over the session is how close the engineer ran to the window's ceiling.
+    peakContextTokens = Math.max(peakContextTokens, input + cacheRead + cacheWrite);
   }
 
   if (lastTs !== null && lastTs < ctx.since.getTime()) return null;
@@ -226,8 +242,13 @@ async function parseSession(
     subagentRuns: s.tools["Agent"] ?? 0,
     hookEvents,
     compactions,
+    autoCompactions,
+    manualCompactions,
     slashCommands,
     mcpCalls,
+    // Absent, not zero, when no usage record exists — the server reads flag
+    // absence as "not measured".
+    ...(usageByRequest.size > 0 ? { peakContextTokens } : {}),
   };
   return s;
 }
