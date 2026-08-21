@@ -60,7 +60,7 @@ export type VerificationKind = "test" | "typecheck" | "build" | "lint";
 
 /** Privacy-safe evidence derived locally from ordered tool calls and results. */
 export interface WorkflowEvidence {
-  classifierVersion: 3;
+  classifierVersion: 4;
   codeChange: WorkflowCodeChange;
   sequenceKnown: boolean;
   finalVerification: WorkflowVerification;

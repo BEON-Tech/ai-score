@@ -334,7 +334,7 @@ describe("cursor / piped-check verdicts and diff estimates", () => {
         {
           type: 2,
           toolFormerData: {
-            name: "edit_file",
+            name: "edit_file_v2",
             callId: "e1",
             status: "completed",
             input: { file_path: "/p/a.ts", old_string: "x", new_string: "y" },
@@ -343,7 +343,7 @@ describe("cursor / piped-check verdicts and diff estimates", () => {
         {
           type: 2,
           toolFormerData: {
-            name: "run_terminal_cmd",
+            name: "run_terminal_command_v2",
             callId: "t1",
             status: "completed",
             input: { command: "pnpm test | tail -5" },
@@ -354,6 +354,8 @@ describe("cursor / piped-check verdicts and diff estimates", () => {
       "p",
       false,
     );
+    assert.equal(s.workflow.codeChange, "success");
+    assert.deepEqual(s.workflow.verificationKinds, ["test"]);
     assert.equal(s.workflow.finalVerification, "passed");
   });
 });

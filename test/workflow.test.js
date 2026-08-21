@@ -23,7 +23,7 @@ describe("workflow evidence", () => {
     t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
 
     assert.deepEqual(t.finish(), {
-      classifierVersion: 3,
+      classifierVersion: 4,
       codeChange: "success",
       sequenceKnown: true,
       finalVerification: "passed",

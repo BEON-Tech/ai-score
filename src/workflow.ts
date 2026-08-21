@@ -98,6 +98,7 @@ const SHELL_TOOLS = new Set([
   "local_shell",
   "run_command",
   "run_in_terminal",
+  "run_terminal_command",
   "run_terminal_cmd",
   "shell",
   "terminal",
@@ -146,7 +147,11 @@ const OBSERVATION_TOOLS = new Set([
   "write_stdin",
 ]);
 
-const normalizeTool = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+const normalizeTool = (name: string) =>
+  name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/_v\d+$/, "");
 
 const normalizePath = (path: string) => path.replace(/\\/g, "/").replace(/\/+$/, "");
 
@@ -337,15 +342,17 @@ function stripCommandPrefixes(raw: string): string {
       }
     }
   }
-  return command
-    .replace(/^(?:python3?\s+-m\s+)?coverage\s+run(?:\s+-+[^\s]+)*\s+(?:-m\s+)?/, "")
-    // Each repeated unit ends at exactly one separator ([^\s/\\]* cannot
-    // cross it), so a non-matching path fails in linear time. The previous
-    // (?:\S+?[/\\])* let \S eat separators too, and a long slash-filled token
-    // that never reaches bin/ or scripts/ backtracked exponentially — codex
-    // desktop's JS exec cells froze whole scans on it.
-    .replace(/^(?:[a-z]:)?[/\\]?(?:[^\s/\\]*[/\\])*(?:\.?bin|scripts)[/\\]/i, "")
-    .replace(/^(\S+)\.exe\b/i, "$1");
+  return (
+    command
+      .replace(/^(?:python3?\s+-m\s+)?coverage\s+run(?:\s+-+[^\s]+)*\s+(?:-m\s+)?/, "")
+      // Each repeated unit ends at exactly one separator ([^\s/\\]* cannot
+      // cross it), so a non-matching path fails in linear time. The previous
+      // (?:\S+?[/\\])* let \S eat separators too, and a long slash-filled token
+      // that never reaches bin/ or scripts/ backtracked exponentially — codex
+      // desktop's JS exec cells froze whole scans on it.
+      .replace(/^(?:[a-z]:)?[/\\]?(?:[^\s/\\]*[/\\])*(?:\.?bin|scripts)[/\\]/i, "")
+      .replace(/^(\S+)\.exe\b/i, "$1")
+  );
 }
 
 function targetKind(name: string): VerificationKind {
@@ -1122,7 +1129,9 @@ export class WorkflowTracker {
       // checks no longer count as run, and dotnet/minitest/unittest verdicts.
       // Wrappers (venv, versioned python, coverage, nx/turbo) and custom
       // test scripts (safe names + test-runner banners) classify as checks.
-      classifierVersion: 3,
+      // v4: versioned Cursor tools (`edit_file_v2`,
+      // `run_terminal_command_v2`) classify like their stable names.
+      classifierVersion: 4,
       codeChange,
       sequenceKnown: this.sequenceKnown,
       finalVerification,
