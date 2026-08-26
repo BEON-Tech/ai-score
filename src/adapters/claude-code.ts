@@ -8,6 +8,7 @@ import {
   home,
   jsonlRecords,
   newSessionRecord,
+  PromptGauge,
   toIso,
   toMs,
   TurnClock,
@@ -45,6 +46,7 @@ export async function parseSession(
   ctx: CollectContext,
 ): Promise<SessionRecord | null> {
   const s = newSessionRecord(hash16(nativeId), hash16(projectSlug));
+  const prompts = new PromptGauge(s.counts);
   const usageByRequest = new Map<string, { model: string; usage: any }>();
   const branches = new Set<string>();
   const modes = new Set<string>();
@@ -173,6 +175,7 @@ export async function parseSession(
         if (text.includes("<command-name>")) slashCommands++;
         closeTurn();
         s.counts.userPrompts++;
+        prompts.add(text);
         s.agentic.turns++;
         workflow.humanTurn();
         turnClock.start(ts);

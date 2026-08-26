@@ -30,6 +30,7 @@ describe("workflow evidence", () => {
       stalePass: null,
       autonomousVerifiedChange: true,
       recoveredFromFailure: null,
+      failedChecks: 0,
       delivery: "not-observed",
       verificationKinds: ["test"],
     });

@@ -10,6 +10,7 @@ import {
   home,
   NEEDS_SQLITE,
   newSessionRecord,
+  PromptGauge,
   resultTextOf,
   toIso,
   toMs,
@@ -104,6 +105,7 @@ export function foldMessages(
   let reasoning = 0;
   let inTurn = false;
   let turnTools = 0;
+  const prompts = new PromptGauge(s.counts);
   const workflow = new WorkflowTracker({
     sequenceKnown,
     commandObservation: true,
@@ -123,6 +125,12 @@ export function foldMessages(
       case "user":
         closeTurn();
         s.counts.userPrompts++;
+        prompts.add(
+          content
+            .filter((b: any) => b?.type === "text" && typeof b.text === "string")
+            .map((b: any) => b.text)
+            .join("\n"),
+        );
         s.agentic.turns++;
         workflow.humanTurn();
         inTurn = true;

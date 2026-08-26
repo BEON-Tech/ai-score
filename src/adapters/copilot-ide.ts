@@ -8,6 +8,7 @@ import {
   hash16,
   home,
   newSessionRecord,
+  PromptGauge,
   toIso,
   toMs,
   usageBucket,
@@ -56,6 +57,7 @@ function uriKey(uri: any): string | null {
 export function foldChatSession(data: any, projectId: string): SessionRecord | null {
   if (!data || typeof data !== "object" || !Array.isArray(data.requests)) return null;
   const s = newSessionRecord(hash16(String(data.sessionId ?? "")), projectId);
+  const prompts = new PromptGauge(s.counts);
   const models = new Set<string>();
   const editedFiles = new Set<string>();
   const prSeen = new Set<string>();
@@ -79,6 +81,7 @@ export function foldChatSession(data: any, projectId: string): SessionRecord | n
       if (lastTs === null || ts > lastTs) lastTs = ts;
     }
     s.counts.userPrompts++;
+    prompts.add(typeof req.message?.text === "string" ? req.message.text : "");
     s.agentic.turns++;
     workflow.humanTurn();
     if (req.isCanceled === true) s.counts.interruptions++;

@@ -5,7 +5,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { CAPABILITIES } from "./capabilities.js";
-import type { HarnessName, HarnessReport, SessionRecord, TokenUsage } from "./types.js";
+import type {
+  HarnessName,
+  HarnessReport,
+  SessionCounts,
+  SessionRecord,
+  TokenUsage,
+} from "./types.js";
 
 export function hash16(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);
@@ -162,6 +168,8 @@ export function newSessionRecord(id: string, projectId: string): SessionRecord {
       toolErrors: 0,
       toolDenials: 0,
       interruptions: 0,
+      promptWords: 0,
+      repromptedPrompts: 0,
     },
     tools: {},
     models: {},
@@ -184,10 +192,58 @@ export function newSessionRecord(id: string, projectId: string): SessionRecord {
       stalePass: null,
       autonomousVerifiedChange: null,
       recoveredFromFailure: null,
+      failedChecks: null,
       delivery: "unknown",
       verificationKinds: [],
     },
   };
+}
+
+/** Words counted per prompt stop here, so one pasted log cannot carry a window's mean. */
+export const PROMPT_WORD_CAP = 200;
+/** Word-set overlap (Jaccard) at which a prompt counts as a re-send of the previous one. */
+export const REPROMPT_SIMILARITY = 0.6;
+/** Both prompts must have this many distinct words — "yes" after "yes" is not a re-send. */
+export const REPROMPT_MIN_WORDS = 5;
+
+/**
+ * Description's two counts, taken from human prompt text on the way past. The
+ * text is never stored: between prompts only the previous prompt's normalized
+ * word set survives, for one similarity comparison, and the sums live in the
+ * session's `counts`.
+ *
+ * ponytail: token-set Jaccard on consecutive prompts is the whole re-prompt
+ * detector; an embedding model would catch paraphrases but the local sample
+ * (2.6% of prompts at 0.6) already separates re-sends from new asks.
+ */
+export class PromptGauge {
+  private previous: Set<string> | null = null;
+
+  constructor(private readonly counts: SessionCounts) {}
+
+  add(text: string): void {
+    const words = text.trim().split(/\s+/).filter(Boolean).length;
+    this.counts.promptWords += Math.min(words, PROMPT_WORD_CAP);
+    const current = new Set(
+      text
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s]/gu, " ")
+        .split(/\s+/)
+        .filter((word) => word.length > 1),
+    );
+    if (
+      this.previous !== null &&
+      this.previous.size >= REPROMPT_MIN_WORDS &&
+      current.size >= REPROMPT_MIN_WORDS
+    ) {
+      let shared = 0;
+      for (const word of current) if (this.previous.has(word)) shared++;
+      if (shared / (this.previous.size + current.size - shared) >= REPROMPT_SIMILARITY) {
+        this.counts.repromptedPrompts++;
+      }
+    }
+    this.previous = current;
+  }
 }
 
 /**

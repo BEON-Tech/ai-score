@@ -1006,6 +1006,7 @@ export class WorkflowTracker {
     let stalePass: boolean | null = null;
     let autonomousVerifiedChange: boolean | null = null;
     let recoveredFromFailure: boolean | null = null;
+    let failedChecks: number | null = null;
     // A denied or cancelled check never ran, so it is not evidence a check
     // ran — `verificationKinds` answers "did any check run?" downstream.
     const verificationKinds = [
@@ -1092,9 +1093,12 @@ export class WorkflowTracker {
         stalePass = allChecks.some(({ event }) => event.outcome === "success");
       }
 
-      const failedChecks = allChecks.filter(({ event }) => event.outcome === "failure");
-      if (failedChecks.length > 0) {
-        recoveredFromFailure = failedChecks.some((failed) => {
+      const failures = allChecks.filter(({ event }) => event.outcome === "failure");
+      // Counted, not just flagged: `recoveredFromFailure: false` alone cannot
+      // tell "nothing failed" from "a failure was left unresolved".
+      failedChecks = failures.length;
+      if (failures.length > 0) {
+        recoveredFromFailure = failures.some((failed) => {
           const laterPass = allChecks.find(
             ({ event, index }) =>
               index > failed.index &&
@@ -1138,6 +1142,7 @@ export class WorkflowTracker {
       stalePass,
       autonomousVerifiedChange,
       recoveredFromFailure,
+      failedChecks,
       delivery,
       verificationKinds,
     };

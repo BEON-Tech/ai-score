@@ -28,6 +28,18 @@ export interface SessionCounts {
   toolErrors: number;
   toolDenials: number;
   interruptions: number;
+  /**
+   * Σ words over the session's human prompts, each prompt capped at
+   * `PROMPT_WORD_CAP` so one pasted log cannot carry a window's mean. Derived
+   * from prompt text on the way past; the text is never kept or sent.
+   */
+  promptWords: number;
+  /**
+   * Human prompts that near-repeat the one before them — the engineer saying
+   * the same thing again because the first prompt didn't land. See
+   * `PromptGauge` for the similarity rule.
+   */
+  repromptedPrompts: number;
 }
 
 export interface SessionAgentic {
@@ -73,6 +85,13 @@ export interface WorkflowEvidence {
   stalePass: boolean | null;
   autonomousVerifiedChange: boolean | null;
   recoveredFromFailure: boolean | null;
+  /**
+   * How many checks failed after the first successful change. Additive:
+   * `recoveredFromFailure: false` alone cannot tell "nothing ever failed"
+   * from "a failure was left unresolved", and the server's recovery rate
+   * needs the difference. Null when there was no legible check sequence.
+   */
+  failedChecks: number | null;
   delivery: WorkflowDelivery;
   verificationKinds: VerificationKind[];
 }
@@ -139,6 +158,10 @@ export interface HarnessCapabilities {
   compactions: SignalCapability;
   /** Whether per-request prompt tokens let the peak context size be derived. */
   peakContextTokens: SignalCapability;
+  /** Whether human prompt text is readable, so `counts.promptWords` is real. */
+  promptWords: SignalCapability;
+  /** Same source as `promptWords`: `counts.repromptedPrompts`. */
+  repromptedPrompts: SignalCapability;
 }
 
 export interface HarnessReport {
