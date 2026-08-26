@@ -9,6 +9,7 @@ import {
   jsonlRecords,
   listFilesRecursive,
   newSessionRecord,
+  PromptGauge,
   toIso,
   toMs,
   TurnClock,
@@ -66,6 +67,7 @@ async function parseSession(
   ctx: CollectContext,
 ): Promise<SessionRecord | null> {
   const s = newSessionRecord(hash16(basename(file)), "unknown");
+  const prompts = new PromptGauge(s.counts);
   const models = new Set<string>();
   const efforts = new Set<string>();
   const approvalPolicies = new Set<string>();
@@ -198,6 +200,7 @@ async function parseSession(
           case "user_message":
             closeTurn();
             s.counts.userPrompts++;
+            prompts.add(typeof p.message === "string" ? p.message : "");
             s.agentic.turns++;
             workflow.humanTurn();
             turnClock.start(ts);

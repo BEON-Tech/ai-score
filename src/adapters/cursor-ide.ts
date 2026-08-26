@@ -9,6 +9,7 @@ import {
   home,
   NEEDS_SQLITE,
   newSessionRecord,
+  PromptGauge,
   resultTextOf,
   toIso,
   toMs,
@@ -138,6 +139,7 @@ export function foldComposer(
 ): SessionRecord {
   const s = newSessionRecord(hash16(String(composer.composerId)), projectId);
   s.isSubagent = isSubagent;
+  const prompts = new PromptGauge(s.counts);
 
   const sessionModel = composer.modelConfig?.modelName;
   const models = new Set<string>();
@@ -171,6 +173,7 @@ export function foldComposer(
     if (kind === "user") {
       closeTurn();
       s.counts.userPrompts++;
+      prompts.add(typeof b.text === "string" ? b.text : "");
       s.agentic.turns++;
       workflow.humanTurn();
       turnClock.start(times[0] ?? null);

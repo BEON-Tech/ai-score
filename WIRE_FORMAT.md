@@ -57,7 +57,11 @@ version strings, one-way hashes, and derived workflow enums. To derive those
 enums the CLI transiently inspects tool arguments, result statuses, and — for
 checks piped through filters like `tail`, where the exit code proves nothing —
 the runner's own pass/fail summary line in the recorded output. Raw values are
-immediately discarded and never serialized.
+immediately discarded and never serialized. Two counts are derived from human
+prompt text the same way — `counts.promptWords` (words per prompt, capped at 200) and `counts.repromptedPrompts` (a prompt whose word set mostly repeats
+the previous one's) — and the text is discarded on the way past; between two
+prompts only the previous prompt's set of lower-cased words is held in
+memory, for one comparison.
 
 One local source outside harness data is consulted: **git history**, read-only,
 to count the commits you made in a session's repository while it ran — the
@@ -113,7 +117,10 @@ for each evidence signal, one of three values:
 The declared signals: `filesChanged`, `additions`, `deletions`, `prLinks`,
 `distinctGitBranches`, `costUsd`, `cacheTokens`, `longestTurnMs`,
 `toolErrors`, `toolDenials`, `interruptions`, `checkVerdicts`,
-`localCommits`, `compactions`, `peakContextTokens`. `compactions` covers the
+`localCommits`, `compactions`, `peakContextTokens`, `promptWords`,
+`repromptedPrompts`. The last two state whether human prompt text is readable,
+so `counts.promptWords` and `counts.repromptedPrompts` are real counts; a
+report that does not declare them predates them. `compactions` covers the
 three compaction flags (`compactions`, `autoCompactions`, `manualCompactions`)
 and `peakContextTokens` whether per-request prompt tokens let the peak context
 size be derived — both feed a server-side diagnostic, never ranked points.
@@ -139,6 +146,8 @@ prints it with the rest of the payload.
 | `counts.toolErrors`                                | number                      | tool invocations that errored (where the harness records it)                                                                                                      |
 | `counts.toolDenials`                               | number                      | permission prompts the user rejected                                                                                                                              |
 | `counts.interruptions`                             | number                      | times the user aborted the agent mid-turn                                                                                                                         |
+| `counts.promptWords`                               | number                      | Σ words over the session's human prompts, each prompt capped at 200 — the mean prompt length, robust to one pasted log; derived from text that is never sent      |
+| `counts.repromptedPrompts`                         | number                      | human prompts whose word set overlaps the previous prompt's at Jaccard ≥ 0.6 (both ≥ 5 distinct words) — the same ask sent again; derived, never the text         |
 | `tools`                                            | `{ [toolName]: count }`     | tool **names** only, never arguments or outputs                                                                                                                   |
 | `models`                                           | `{ [modelId]: TokenUsage }` | per-model token totals                                                                                                                                            |
 | `costUsd`                                          | number \| null              | cost where the harness records it (Cursor's separately billed requests)                                                                                           |
@@ -156,17 +165,18 @@ prints it with the rest of the payload.
 
 Present in reports produced by clients with workflow classification support:
 
-| Field                      | Type                                           | Meaning                                                                 |
-| -------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
-| `classifierVersion`        | `3`                                            | local classifier contract version                                       |
-| `codeChange`               | `success` \| `failure` \| `none` \| `unknown`  | whether a code-mutating tool produced an observable change              |
-| `sequenceKnown`            | boolean                                        | whether native records preserved reliable event order                   |
-| `finalVerification`        | `passed` \| `failed` \| `not-run` \| `unknown` | state of checks after the final successful code change                  |
-| `stalePass`                | boolean \| null                                | final verdict `not-run` or `unknown`, but a check passed earlier        |
-| `autonomousVerifiedChange` | boolean \| null                                | whether final change and passing check occurred in one human turn       |
-| `recoveredFromFailure`     | boolean \| null                                | whether a failed check was followed by another change and passing check |
-| `delivery`                 | `observed` \| `not-observed` \| `unknown`      | successful commit/PR evidence visible inside the harness                |
-| `verificationKinds`        | (`test` \| `typecheck` \| `build` \| `lint`)[] | categories observed, never command text                                 |
+| Field                      | Type                                           | Meaning                                                                                         |
+| -------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `classifierVersion`        | `3`                                            | local classifier contract version                                                               |
+| `codeChange`               | `success` \| `failure` \| `none` \| `unknown`  | whether a code-mutating tool produced an observable change                                      |
+| `sequenceKnown`            | boolean                                        | whether native records preserved reliable event order                                           |
+| `finalVerification`        | `passed` \| `failed` \| `not-run` \| `unknown` | state of checks after the final successful code change                                          |
+| `stalePass`                | boolean \| null                                | final verdict `not-run` or `unknown`, but a check passed earlier                                |
+| `autonomousVerifiedChange` | boolean \| null                                | whether final change and passing check occurred in one human turn                               |
+| `recoveredFromFailure`     | boolean \| null                                | whether a failed check was followed by another change and passing check                         |
+| `failedChecks`             | number \| null                                 | how many checks failed after the first successful change; null without a legible check sequence |
+| `delivery`                 | `observed` \| `not-observed` \| `unknown`      | successful commit/PR evidence visible inside the harness                                        |
+| `verificationKinds`        | (`test` \| `typecheck` \| `build` \| `lint`)[] | categories observed, never command text                                                         |
 
 `unknown` is materially different from a negative result. It means the native
 harness did not expose enough ordering, arguments, or structured outcome data
