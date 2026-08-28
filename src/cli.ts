@@ -206,6 +206,14 @@ async function main(): Promise<void> {
         verbose,
         recordProjectDir: (sessionId, dir) => dirs.set(sessionId, dir),
       });
+      // A session the agent never answered says nothing about how the engineer
+      // works, and the server drops it before scoring (its `isInertSession`).
+      // Dropping it here too keeps the payload uploadable: one automation left
+      // 97k one-prompt Codex files behind — 157 MB against a 25 MB limit.
+      report.sessions = report.sessions.filter(
+        (s) => s.counts.assistantMessages > 0 || s.counts.toolCalls > 0,
+      );
+      report.sessionsIncluded = report.sessions.length;
       progress.end(adapter.harness, scanDetail(report));
       harnesses.push(report);
       collected.push({ report, dirs });
