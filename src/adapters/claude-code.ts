@@ -1,11 +1,12 @@
 import { readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Adapter, CollectContext, HarnessReport, SessionRecord } from "../types.js";
 import {
   displayPath,
   emptyReport,
   hash16,
   home,
+  type JsonlLine,
   jsonlRecords,
   newSessionRecord,
   PromptGauge,
@@ -17,6 +18,86 @@ import {
 import { toolOutcome, WorkflowTracker } from "../workflow.js";
 
 const INTERRUPT_MARKERS = ["[Request interrupted by user", "[Request cancelled by user"];
+
+/**
+ * Claude Code running inside the Claude desktop app (agent mode / Cowork)
+ * keeps each sandbox's own `.claude/projects` tree here instead of under
+ * `~/.claude`, in the identical format:
+ * `local-agent-mode-sessions/<account>/<workspace>/local_<id>/.claude/projects/`.
+ * One engineer had 85% of their Claude Code activity there; the CLI read none.
+ */
+const desktopAppSessionRoots = () => [
+  home("Library", "Application Support", "Claude", "local-agent-mode-sessions"),
+  join(process.env.APPDATA ?? home("AppData", "Roaming"), "Claude", "local-agent-mode-sessions"),
+  home(".config", "Claude", "local-agent-mode-sessions"),
+];
+
+/** `.claude/projects` trees whose `.claude` sits up to `depth` directories below `dir`. */
+async function nestedProjectRoots(dir: string, depth: number): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name === ".claude") out.push(join(dir, ".claude", "projects"));
+    else if (depth > 0) out.push(...(await nestedProjectRoots(join(dir, entry.name), depth - 1)));
+  }
+  return out;
+}
+
+/**
+ * Time-ordered merge of transcripts that are each already in time order. The
+ * earliest stream wins ties and a record without a timestamp inherits its
+ * predecessor's, so within one file the original order always survives.
+ */
+async function* mergeByTimestamp(streams: AsyncGenerator<JsonlLine>[]): AsyncGenerator<JsonlLine> {
+  const heads = await Promise.all(
+    streams.map(async (stream) => ({ stream, next: await stream.next(), ts: -Infinity })),
+  );
+  const stamp = (head: (typeof heads)[number]) => {
+    if (head.next.done || !head.next.value.ok) return;
+    const ts = toMs((head.next.value.value as any)?.timestamp);
+    if (ts !== null) head.ts = ts;
+  };
+  heads.forEach(stamp);
+  for (;;) {
+    let pick: (typeof heads)[number] | null = null;
+    for (const head of heads) {
+      if (!head.next.done && (pick === null || head.ts < pick.ts)) pick = head;
+    }
+    if (pick === null || pick.next.done) return;
+    yield pick.next.value;
+    pick.next = await pick.stream.next();
+    stamp(pick);
+  }
+}
+
+/**
+ * The session's records with its subagents' transcripts merged back in.
+ * Claude Code used to inline subagent traffic as `isSidechain` records, which
+ * the parser below reads; current versions write each subagent to
+ * `<project>/<session-id>/subagents/agent-<id>.jsonl` instead. Left out, a
+ * delegated test run is invisible and the session that delegated it reads as
+ * never having checked — 46 of one engineer's 67 coding sessions.
+ */
+async function* sessionRecords(file: string, nativeId: string): AsyncGenerator<JsonlLine> {
+  const subagentDir = join(dirname(file), nativeId, "subagents");
+  let subagentFiles: string[] = [];
+  try {
+    subagentFiles = (await readdir(subagentDir))
+      .filter((entry) => entry.endsWith(".jsonl"))
+      .sort()
+      .map((entry) => join(subagentDir, entry));
+  } catch {
+    // No subagents directory — the common case.
+  }
+  if (subagentFiles.length === 0) return yield* jsonlRecords(file);
+  yield* mergeByTimestamp([file, ...subagentFiles].map((path) => jsonlRecords(path)));
+}
 
 function messageText(message: any): string {
   const content = message?.content;
@@ -81,7 +162,7 @@ export async function parseSession(
     turnTools = 0;
   };
 
-  for await (const parsed of jsonlRecords(file)) {
+  for await (const parsed of sessionRecords(file, nativeId)) {
     if (!parsed.ok) {
       report.parseErrors++;
       workflow.uncertainSequence();
@@ -98,7 +179,15 @@ export async function parseSession(
       if (firstTs === null || ts < firstTs) firstTs = ts;
       if (lastTs === null || ts > lastTs) lastTs = ts;
     }
-    if (typeof r.version === "string") report.latestVersion = r.version;
+    // The newest version seen, not the last one read — files scan in
+    // directory order, and the desktop app's sandboxes run ahead of the CLI.
+    if (
+      typeof r.version === "string" &&
+      (report.latestVersion === null ||
+        r.version.localeCompare(report.latestVersion, undefined, { numeric: true }) > 0)
+    ) {
+      report.latestVersion = r.version;
+    }
     if (typeof r.cwd === "string" && r.cwd) {
       cwd ??= r.cwd;
       workflow.projectDir(r.cwd);
@@ -150,6 +239,7 @@ export async function parseSession(
           // arrives without it is a completed, successful call — most blocks
           // carry no other structured outcome for toolOutcome to read.
           const outcome = toolOutcome(block);
+          if (block.is_error === true) s.counts.toolErrors++;
           const text =
             typeof block.content === "string"
               ? block.content
@@ -261,36 +351,46 @@ export const claudeCode: Adapter = {
   async collect(ctx) {
     const root = home(".claude", "projects");
     const report = emptyReport("claude-code", displayPath(root));
-    let projectDirs: string[];
-    try {
-      projectDirs = await readdir(root);
-    } catch {
-      return report;
-    }
-    report.detected = true;
-    for (const project of projectDirs) {
-      const projectPath = join(root, project);
-      let entries: string[];
+    const roots = [
+      root,
+      ...(
+        await Promise.all(desktopAppSessionRoots().map((dir) => nestedProjectRoots(dir, 3)))
+      ).flat(),
+    ];
+    for (const projectsRoot of roots) {
+      let projectDirs: string[];
       try {
-        entries = await readdir(projectPath);
+        projectDirs = await readdir(projectsRoot);
       } catch {
         continue;
       }
-      for (const entry of entries) {
-        if (!entry.endsWith(".jsonl")) continue;
-        const file = join(projectPath, entry);
-        report.sessionsScanned++;
+      report.detected = true;
+      for (const project of projectDirs) {
+        const projectPath = join(projectsRoot, project);
+        let entries: string[];
         try {
-          const info = await stat(file);
-          if (info.mtimeMs < ctx.since.getTime()) continue;
-          ctx.verbose(`claude-code: parsing ${displayPath(file)}`);
-          const session = await parseSession(file, project, entry.slice(0, -6), report, ctx);
-          if (session) {
-            report.sessions.push(session);
-            report.sessionsIncluded++;
-          }
+          entries = await readdir(projectPath);
         } catch {
-          report.parseErrors++;
+          continue;
+        }
+        // Only the session transcripts themselves: a session's subagent files
+        // live in a sibling directory and are read by parseSession as part of it.
+        for (const entry of entries) {
+          if (!entry.endsWith(".jsonl")) continue;
+          const file = join(projectPath, entry);
+          report.sessionsScanned++;
+          try {
+            const info = await stat(file);
+            if (info.mtimeMs < ctx.since.getTime()) continue;
+            ctx.verbose(`claude-code: parsing ${displayPath(file)}`);
+            const session = await parseSession(file, project, entry.slice(0, -6), report, ctx);
+            if (session) {
+              report.sessions.push(session);
+              report.sessionsIncluded++;
+            }
+          } catch {
+            report.parseErrors++;
+          }
         }
       }
     }

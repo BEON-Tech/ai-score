@@ -105,6 +105,11 @@ const SHELL_TOOLS = new Set([
 ]);
 
 const OBSERVATION_TOOLS = new Set([
+  // Subagent spawns (Claude Code's Agent, formerly Task; Copilot CLI's task).
+  // The subagent's own transcript carries its edits and checks — the adapters
+  // merge it into the session — so the spawn itself changes nothing; reading
+  // it as an opaque tool made every delegated check end in "unknown".
+  "agent",
   "askuserquestion",
   "enterplanmode",
   "enterworktree",
@@ -128,6 +133,7 @@ const OBSERVATION_TOOLS = new Set([
   "semantic_search",
   "sendmessage",
   "skill",
+  "task",
   "taskcreate",
   "tasklist",
   "taskoutput",
@@ -1135,6 +1141,10 @@ export class WorkflowTracker {
       // test scripts (safe names + test-runner banners) classify as checks.
       // v4: versioned Cursor tools (`edit_file_v2`,
       // `run_terminal_command_v2`) classify like their stable names.
+      // CLI 0.3.15 (still v4 — the server's wire schema pins ≤ 4 and no
+      // scoring rule needs to tell the two apart): subagent spawns classify as
+      // observation now that the claude-code adapter merges the subagent
+      // transcript into the session, so a delegated check is a real check.
       classifierVersion: 4,
       codeChange,
       sequenceKnown: this.sequenceKnown,

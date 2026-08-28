@@ -25,9 +25,9 @@ export const CAPABILITIES: Record<HarnessName, HarnessCapabilities> = {
     costUsd: "unobservable",
     cacheTokens: "measured",
     longestTurnMs: "estimated",
-    // Result blocks mark errors, but the count currently stays at zero —
-    // declared unobservable so a zero is never read as "no errors".
-    toolErrors: "unobservable",
+    // `is_error` on result blocks — denials and interrupts included, as the
+    // harness marks them.
+    toolErrors: "measured",
     toolDenials: "measured",
     interruptions: "measured",
     checkVerdicts: "measured",

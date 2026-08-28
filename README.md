@@ -24,20 +24,26 @@ npx @beon-tech/ai-score logout       # forget the cached token
 
 ## Supported harnesses
 
-| Harness           | Source scanned                                                              |
-| ----------------- | --------------------------------------------------------------------------- |
-| Claude Code       | `~/.claude/projects/**/*.jsonl`                                             |
-| Codex             | `~/.codex/sessions/**/*.jsonl` (+ `archived_sessions`)                      |
-| Copilot CLI       | `~/.copilot/session-state/*/events.jsonl`                                   |
-| Copilot (VS Code) | VS Code's `workspaceStorage/*/chatSessions/*.json` (stable + Insiders)      |
-| Cursor CLI        | `~/.cursor/chats/**/store.db` (`node:sqlite`)                               |
-| Cursor (app)      | Cursor's `globalStorage/state.vscdb` and `workspaceStorage` (`node:sqlite`) |
+| Harness           | Source scanned                                                                  |
+| ----------------- | ------------------------------------------------------------------------------- |
+| Claude Code       | `~/.claude/projects/*/*.jsonl` + each session's `subagents/*.jsonl` (see below) |
+| Codex             | `~/.codex/sessions/**/*.jsonl` (+ `archived_sessions`)                          |
+| Copilot CLI       | `~/.copilot/session-state/*/events.jsonl`                                       |
+| Copilot (VS Code) | VS Code's `workspaceStorage/*/chatSessions/*.json` (stable + Insiders)          |
+| Cursor CLI        | `~/.cursor/chats/**/store.db` (`node:sqlite`)                                   |
+| Cursor (app)      | Cursor's `globalStorage/state.vscdb` and `workspaceStorage` (`node:sqlite`)     |
 
 Sources marked `node:sqlite` need Node ≥ 22.5; on older Node those harnesses
 report a `skippedReason` and the rest of the scan proceeds.
 
-Claude Code and Codex share these transcript stores between their CLI and
-desktop apps, so sessions created in either interface are included.
+Codex shares its transcript store between its CLI and desktop app. Claude Code
+does for plain desktop sessions, but its agent mode (Cowork) runs in sandboxes
+that each keep their own `.claude/projects` tree under
+`~/Library/Application Support/Claude/local-agent-mode-sessions/` (Windows:
+`%APPDATA%\Claude\…`, Linux: `~/.config/Claude/…`), so those trees are scanned
+too. A Claude Code session's subagents are separate files in
+`<project>/<session-id>/subagents/`; they are merged back into the session by
+timestamp so delegated edits, checks and errors count where they happened.
 
 Cursor ships two products that share a name and nothing else, so they report as
 two harnesses — `cursor-cli` and `cursor-ide`. They record different things:
