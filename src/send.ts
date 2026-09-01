@@ -1,3 +1,4 @@
+import { gzipSync } from "node:zlib";
 import type {
   DimensionScore,
   Payload,
@@ -131,14 +132,19 @@ export async function send(
   payload: Payload,
   token: string,
 ): Promise<{ status: number; body: string; result: SubmissionResult }> {
+  // Gzipped, because the transport in front of the server (Vercel) caps request
+  // bodies at ~4.5 MB regardless of what the server itself accepts, and a
+  // year of heavy multi-harness use overflows that as plain JSON. Session
+  // records are repetitive; gzip buys roughly 10–20x.
   const res = await fetch(endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      "content-encoding": "gzip",
       "user-agent": `beon-ai-score/${payload.client.version}`,
       authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify(payload),
+    body: gzipSync(JSON.stringify(payload)),
     signal: AbortSignal.timeout(30_000),
   });
   const body = await res.text();

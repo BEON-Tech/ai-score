@@ -167,8 +167,8 @@ interface Cell {
 
 const cell = (text: string, paint: Paint): Cell => ({ text, paint });
 
-/** The report table, notes, and totals. */
-export function renderReport(payload: Payload): string {
+/** The report table and totals; the diagnostic notes only under --verbose. */
+export function renderReport(payload: Payload, verbose = false): string {
   const rows: { cells: Cell[]; suffix: string }[] = [];
   const totals: Totals = {
     sessions: 0,
@@ -251,25 +251,28 @@ export function renderReport(payload: Payload): string {
   out.push(rule());
   out.push(line(totalRow));
 
+  // Diagnostic footnotes (windowing, parse errors, evidence coverage) are for
+  // whoever is debugging a surprising score, not the everyday run.
   const notes: string[] = [];
-  for (const report of payload.harnesses) {
-    if (report.skippedReason) notes.push(`${report.harness} skipped — ${report.skippedReason}`);
-    if (report.parseErrors > 0) {
-      notes.push(
-        `${report.harness} — ${grouped(report.parseErrors)} unreadable records, skipped and counted`,
-      );
+  if (verbose)
+    for (const report of payload.harnesses) {
+      if (report.skippedReason) notes.push(`${report.harness} skipped — ${report.skippedReason}`);
+      if (report.parseErrors > 0) {
+        notes.push(
+          `${report.harness} — ${grouped(report.parseErrors)} unreadable records, skipped and counted`,
+        );
+      }
+      // A detected harness whose sessions all fell outside the window used to
+      // show a bare zero and read as a parser bug — this is the note that would
+      // have answered that support thread before it started.
+      const outside = report.sessionsScanned - report.sessionsIncluded - report.parseErrors;
+      if (report.detected && !report.skippedReason && outside > 0) {
+        notes.push(
+          `${report.harness} — ${grouped(outside)} sessions not counted: older than the ${payload.window.days}-day window, or empty`,
+        );
+      }
     }
-    // A detected harness whose sessions all fell outside the window used to
-    // show a bare zero and read as a parser bug — this is the note that would
-    // have answered that support thread before it started.
-    const outside = report.sessionsScanned - report.sessionsIncluded - report.parseErrors;
-    if (report.detected && !report.skippedReason && outside > 0) {
-      notes.push(
-        `${report.harness} — ${grouped(outside)} sessions not counted: older than the ${payload.window.days}-day window, or empty`,
-      );
-    }
-  }
-  notes.push(...evidenceNotes(payload));
+  if (verbose) notes.push(...evidenceNotes(payload));
   if (notes.length > 0) {
     out.push("");
     for (const note of notes) out.push(`${PAD}${c.faint("⌐")} ${c.muted(note)}`);

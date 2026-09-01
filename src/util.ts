@@ -87,11 +87,21 @@ export async function listFilesRecursive(dir: string, suffix: string): Promise<s
  * than the whole scan.
  */
 export async function databaseSync(): Promise<any | null> {
+  // Importing node:sqlite prints "ExperimentalWarning: SQLite is an
+  // experimental feature" to stderr, right into the middle of the report.
+  // Swallow just that one warning for the duration of the import.
+  const emitWarning = process.emitWarning;
+  process.emitWarning = ((warning: unknown, ...rest: unknown[]) => {
+    if (String(warning).includes("SQLite")) return;
+    (emitWarning as Function).call(process, warning, ...rest);
+  }) as typeof process.emitWarning;
   try {
     const { DatabaseSync } = await import("node:sqlite");
     return DatabaseSync;
   } catch {
     return null;
+  } finally {
+    process.emitWarning = emitWarning;
   }
 }
 

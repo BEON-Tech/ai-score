@@ -203,7 +203,12 @@ async function main(): Promise<void> {
       const report = await adapter.collect({
         since,
         now,
-        verbose,
+        // Adapters call verbose once per session file, so it doubles as the
+        // progress tick that keeps a multi-thousand-session scan looking alive.
+        verbose: (msg) => {
+          progress.tick(adapter.harness);
+          verbose(msg);
+        },
         recordProjectDir: (sessionId, dir) => dirs.set(sessionId, dir),
       });
       // A session the agent never answered says nothing about how the engineer
@@ -238,7 +243,7 @@ async function main(): Promise<void> {
     harnesses,
   };
 
-  process.stderr.write(renderReport(payload));
+  process.stderr.write(renderReport(payload, values.verbose));
   process.stderr.write(renderPrivacy());
 
   const json = JSON.stringify(payload, null, 2);

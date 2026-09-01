@@ -297,9 +297,9 @@ describe("renderReport", () => {
     assert.match(out, /not found/);
   });
 
-  it("marks a skipped harness and explains why", () => {
+  it("marks a skipped harness and explains why under --verbose", () => {
     const out = plain(
-      renderReport(payload([report("cursor-cli", { skippedReason: "needs Node >= 22.5" })])),
+      renderReport(payload([report("cursor-cli", { skippedReason: "needs Node >= 22.5" })]), true),
     );
     assert.match(out, /skipped/);
     assert.match(out, /needs Node >= 22\.5/);
@@ -307,14 +307,26 @@ describe("renderReport", () => {
 
   it("explains sessions outside the window instead of showing a bare zero", () => {
     const out = plain(
-      renderReport(payload([report("copilot-ide", { sessionsScanned: 261, sessionsIncluded: 0 })])),
+      renderReport(
+        payload([report("copilot-ide", { sessionsScanned: 261, sessionsIncluded: 0 })]),
+        true,
+      ),
     );
     assert.match(out, /copilot-ide — 261 sessions not counted: older than the 30-day window/);
   });
 
   it("notes unreadable records without hiding them", () => {
-    const out = plain(renderReport(payload([report("codex", { parseErrors: 4 })])));
+    const out = plain(renderReport(payload([report("codex", { parseErrors: 4 })]), true));
     assert.match(out, /4 unreadable records/);
+  });
+
+  it("keeps the diagnostic notes out of the default run", () => {
+    const out = plain(
+      renderReport(
+        payload([report("codex", { parseErrors: 4, sessionsScanned: 261, sessionsIncluded: 0 })]),
+      ),
+    );
+    assert.doesNotMatch(out, /unreadable records|not counted/);
   });
 
   it("keeps columns aligned when a harness name is unusually long", () => {

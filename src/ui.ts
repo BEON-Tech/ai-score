@@ -208,6 +208,8 @@ interface Row {
   detail: string;
   startedAt: number;
   elapsedMs: number;
+  /** Sessions parsed so far — proof of life on a scan with thousands of files. */
+  count: number;
 }
 
 /**
@@ -233,6 +235,7 @@ export class ScanProgress {
       detail: "",
       startedAt: 0,
       elapsedMs: 0,
+      count: 0,
     }));
     this.#live = live && Boolean(process.stderr.isTTY);
   }
@@ -259,6 +262,15 @@ export class ScanProgress {
       this.#timer.unref();
     }
     this.#paint();
+  }
+
+  /**
+   * Counts one parsed session. No repaint here — a 10k-session scan would
+   * spend more time painting than parsing; the 80ms timer picks it up.
+   */
+  tick(name: string): void {
+    const row = this.#rows.find((r) => r.name === name);
+    if (row) row.count++;
   }
 
   /** Marks a harness finished, with a one-line summary of what was found. */
@@ -308,7 +320,9 @@ export class ScanProgress {
         row.state === "done"
           ? `${c.muted(row.detail)} ${c.faint(`${(row.elapsedMs / 1000).toFixed(2)}s`)}`
           : row.state === "running"
-            ? c.faint("reading sessions…")
+            ? c.faint(
+                row.count > 0 ? `reading sessions… ${grouped(row.count)}` : "reading sessions…",
+              )
             : c.faint("queued");
       return `  ${mark} ${name}   ${detail}`;
     });
