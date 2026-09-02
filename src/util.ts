@@ -180,6 +180,7 @@ export function newSessionRecord(id: string, projectId: string): SessionRecord {
       interruptions: 0,
       promptWords: 0,
       repromptedPrompts: 0,
+      describedPrompts: 0,
     },
     tools: {},
     models: {},
@@ -195,7 +196,7 @@ export function newSessionRecord(id: string, projectId: string): SessionRecord {
       localCommits: null,
     },
     workflow: {
-      classifierVersion: 4,
+      classifierVersion: 5,
       codeChange: "none",
       sequenceKnown: false,
       finalVerification: "unknown",
@@ -232,6 +233,7 @@ export class PromptGauge {
   constructor(private readonly counts: SessionCounts) {}
 
   add(text: string): void {
+    this.counts.describedPrompts++;
     const words = text.trim().split(/\s+/).filter(Boolean).length;
     this.counts.promptWords += Math.min(words, PROMPT_WORD_CAP);
     const current = new Set(

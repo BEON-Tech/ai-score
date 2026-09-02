@@ -262,10 +262,13 @@ export async function parseSession(
           closeTurn();
           break;
         }
-        if (text.includes("<command-name>")) slashCommands++;
         closeTurn();
         s.counts.userPrompts++;
-        prompts.add(text);
+        // A slash command is harness markup around a skill the engineer
+        // described once, elsewhere: it counts as a prompt (Leverage) but not
+        // as a description (words, re-sends) — see `describedPrompts`.
+        if (text.includes("<command-name>")) slashCommands++;
+        else prompts.add(text);
         s.agentic.turns++;
         workflow.humanTurn();
         turnClock.start(ts);

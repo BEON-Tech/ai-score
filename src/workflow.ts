@@ -278,6 +278,22 @@ function isAgentStatePath(path: string, projectDir: string | null): boolean {
     .some((root) => normalized === root || normalized.startsWith(root + "/"));
 }
 
+/**
+ * v5: a write whose every target is prose — a spec, a README, release notes —
+ * is an observation, not a code change. Spec-driven work writes the spec in one
+ * session and the code in the next; the spec session ran no check and shipped
+ * no commit because there was nothing to check or ship yet, and reading it as
+ * an unverified, undelivered coding session charged Verification and Delivery
+ * for a workflow the score means to allow. A session that writes the spec and
+ * the code is still a coding session. What a docs-only session is *worth* is
+ * deliberately not modelled: it simply leaves both denominators.
+ */
+const DOCS_EXTENSIONS = /\.(?:md|mdx|markdown|txt|rst|adoc)$/i;
+
+function isDocsPath(path: string): boolean {
+  return DOCS_EXTENSIONS.test(path.trim());
+}
+
 function commandFromInput(value: unknown, depth = 0): string | null {
   if (depth > 2) return null;
   if (typeof value === "string") {
@@ -657,7 +673,10 @@ function classifyTool(name: string, input: unknown, projectDir: string | null): 
   const normalized = normalizeTool(name);
   if (MUTATION_TOOLS.has(normalized)) {
     const targets = mutationTargets(input);
-    if (targets.length > 0 && targets.every((target) => isAgentStatePath(target, projectDir))) {
+    if (
+      targets.length > 0 &&
+      targets.every((target) => isAgentStatePath(target, projectDir) || isDocsPath(target))
+    ) {
       return { kind: "observation" };
     }
     return { kind: "mutation" };
@@ -1145,7 +1164,9 @@ export class WorkflowTracker {
       // scoring rule needs to tell the two apart): subagent spawns classify as
       // observation now that the claude-code adapter merges the subagent
       // transcript into the session, so a delegated check is a real check.
-      classifierVersion: 4,
+      // v5 (CLI 0.3.17, client classifier v3): docs-only writes are
+      // observations — see `isDocsPath`.
+      classifierVersion: 5,
       codeChange,
       sequenceKnown: this.sequenceKnown,
       finalVerification,

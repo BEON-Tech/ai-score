@@ -235,7 +235,7 @@ async function main(): Promise<void> {
 
   const payload: Payload = {
     schema: "beon.ai-score.v2",
-    client: { name: "@beon-tech/ai-score", version, workflowClassifierVersion: 2 },
+    client: { name: "@beon-tech/ai-score", version, workflowClassifierVersion: 3 },
     generatedAt: now.toISOString(),
     window: { days, start: since.toISOString(), end: now.toISOString() },
     engineer: { machineId },
