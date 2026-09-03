@@ -34,6 +34,14 @@ describe("PromptGauge", () => {
     assert.equal(s.counts.promptWords, 4);
   });
 
+  it("counts every prompt it measures as described", () => {
+    const s = newSessionRecord("s", "p");
+    const gauge = new PromptGauge(s.counts);
+    gauge.add("refactor the parser to handle unicode escapes");
+    gauge.add("ok");
+    assert.equal(s.counts.describedPrompts, 2);
+  });
+
   it("keeps different asks apart", () => {
     const s = newSessionRecord("id", "project");
     const g = new PromptGauge(s.counts);

@@ -197,8 +197,25 @@ describe("claude-code / parseSession prompt gauge", () => {
       user(5, "ok"),
     ]);
     assert.equal(s.counts.userPrompts, 3);
+    assert.equal(s.counts.describedPrompts, 3);
     assert.equal(s.counts.promptWords, 8 + 9 + 1);
     assert.equal(s.counts.repromptedPrompts, 1);
+  });
+
+  it("counts a slash command as a prompt but not as a description", async () => {
+    const { session: s } = await parse([
+      user(
+        0,
+        "<command-message>ticket is running…</command-message>\n<command-name>/ticket</command-name>\n<command-args>JIRA-123</command-args>",
+      ),
+      assistant(1, { input_tokens: 10 }),
+      user(2, "now also update the release notes"),
+      assistant(3, { input_tokens: 10 }),
+    ]);
+    assert.equal(s.counts.userPrompts, 2);
+    assert.equal(s.counts.describedPrompts, 1);
+    assert.equal(s.counts.promptWords, 6);
+    assert.equal(s.flags.slashCommands, 1);
   });
 });
 

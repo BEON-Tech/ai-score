@@ -40,6 +40,13 @@ export interface SessionCounts {
    * `PromptGauge` for the similarity rule.
    */
   repromptedPrompts: number;
+  /**
+   * Human prompts the engineer actually wrote out — `userPrompts` minus
+   * slash-command invocations, whose text is harness markup around a skill
+   * that was described once, elsewhere. Description's denominator (CLI ≥
+   * 0.3.17); Leverage keeps dividing by `userPrompts`.
+   */
+  describedPrompts: number;
 }
 
 export interface SessionAgentic {
@@ -72,7 +79,7 @@ export type VerificationKind = "test" | "typecheck" | "build" | "lint";
 
 /** Privacy-safe evidence derived locally from ordered tool calls and results. */
 export interface WorkflowEvidence {
-  classifierVersion: 4;
+  classifierVersion: 5;
   codeChange: WorkflowCodeChange;
   sequenceKnown: boolean;
   finalVerification: WorkflowVerification;
@@ -179,7 +186,7 @@ export interface HarnessReport {
 
 export interface Payload {
   schema: "beon.ai-score.v2";
-  client: { name: string; version: string; workflowClassifierVersion: 2 };
+  client: { name: string; version: string; workflowClassifierVersion: 3 };
   generatedAt: string;
   window: { days: number; start: string; end: string };
   /**

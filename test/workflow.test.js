@@ -23,7 +23,7 @@ describe("workflow evidence", () => {
     t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
 
     assert.deepEqual(t.finish(), {
-      classifierVersion: 4,
+      classifierVersion: 5,
       codeChange: "success",
       sequenceKnown: true,
       finalVerification: "passed",
@@ -118,8 +118,33 @@ describe("workflow evidence", () => {
     t.humanTurn();
     t.toolCall("Edit", {}, "edit", "success");
     t.toolCall("Bash", { command: "pnpm test" }, "test", "success");
-    t.toolCall("Write", { file_path: "memory/note.md" }, "note", "success");
+    t.toolCall("Write", { file_path: "memory/note.json" }, "note", "success");
     assert.equal(t.finish().finalVerification, "not-run");
+  });
+
+  it("reads a docs-only session as no code change (v5)", () => {
+    // Spec-driven development: one session writes the spec, the next writes
+    // the code. The spec session has nothing to check or ship.
+    const spec = tracker();
+    spec.humanTurn();
+    spec.toolCall("Write", { file_path: "docs/spec.md" }, "spec", "success");
+    spec.toolCall("Edit", { file_path: "/repo/README.md" }, "readme", "success");
+    assert.equal(spec.finish().codeChange, "none");
+
+    // A docs write after a passing check does not invalidate it either.
+    const noted = tracker();
+    noted.humanTurn();
+    noted.toolCall("Edit", { file_path: "src/a.ts" }, "edit", "success");
+    noted.toolCall("Bash", { command: "pnpm test" }, "test", "success");
+    noted.toolCall("Write", { file_path: "CHANGELOG.md" }, "notes", "success");
+    assert.equal(noted.finish().finalVerification, "passed");
+
+    // Spec and code in one session is still a coding session.
+    const mixed = tracker();
+    mixed.humanTurn();
+    mixed.toolCall("Write", { file_path: "docs/spec.md" }, "spec", "success");
+    mixed.toolCall("Write", { file_path: "src/feature.ts" }, "code", "success");
+    assert.equal(mixed.finish().codeChange, "success");
   });
 
   it("classifies apply_patch by the files its patch touches", () => {
