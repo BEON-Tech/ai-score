@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { asMessage, foldMessages, messageOrder, parseMeta } from "../dist/adapters/cursor-cli.js";
-import { foldComposer, workspacePath } from "../dist/adapters/cursor-ide.js";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  composerPaths,
+  foldComposer,
+  gitRootFinder,
+  projectsByComposer,
+  repoFromPaths,
+  workspacePath,
+} from "../dist/adapters/cursor-ide.js";
+import { databaseSync } from "../dist/util.js";
 import { newSessionRecord } from "../dist/util.js";
 
 const utf8 = (s) => new TextEncoder().encode(s);
@@ -162,6 +173,111 @@ describe("cursor-ide / workspacePath", () => {
     const remote = "vscode-remote://background-composer%2Bbc-1/workspace";
     assert.equal(workspacePath(remote), remote);
     assert.equal(workspacePath("/plain/path"), "/plain/path");
+  });
+});
+
+describe("cursor-ide / locating a chat's repository from its file paths", () => {
+  // Two repositories and a stray folder, on a real disk: the walk up to `.git`
+  // is the thing under test.
+  const root = mkdtempSync(join(tmpdir(), "ai-score-cursor-"));
+  const app = join(root, "app");
+  const lib = join(root, "lib");
+  mkdirSync(join(app, ".git"), { recursive: true });
+  mkdirSync(join(app, "src", "deep"), { recursive: true });
+  mkdirSync(lib, { recursive: true });
+  // A worktree leaves `.git` as a file, not a directory.
+  writeFileSync(join(lib, ".git"), "gitdir: elsewhere\n");
+  mkdirSync(join(root, "scratch"), { recursive: true });
+  const file = (...parts) => join(...parts);
+
+  it("reads absolute paths from tool params, string-encoded params and file URIs", () => {
+    const composer = {
+      originalFileStates: { [`file://${file(app, "src", "a.ts")}`]: {} },
+      codeBlockData: {},
+    };
+    const bubbles = [
+      { toolFormerData: { name: "edit_file", params: { target_file: file(app, "src", "b.ts") } } },
+      {
+        toolFormerData: {
+          name: "read_file",
+          params: JSON.stringify({
+            relativeWorkspacePath: "src/c.ts",
+            path: file(app, "README.md"),
+          }),
+        },
+      },
+      { text: "no tool here" },
+    ];
+    assert.deepEqual(composerPaths(composer, bubbles).sort(), [
+      file(app, "README.md"),
+      file(app, "src", "a.ts"),
+      file(app, "src", "b.ts"),
+    ]);
+  });
+
+  it("picks the repository most of the paths live in, worktrees included", () => {
+    const paths = [
+      file(app, "src", "deep", "x.ts"),
+      file(app, "src", "y.ts"),
+      file(lib, "z.ts"),
+      file(root, "scratch", "notes.md"),
+    ];
+    assert.equal(repoFromPaths(paths), app);
+    assert.equal(repoFromPaths([file(lib, "only.ts")]), lib);
+  });
+
+  it("finds nothing outside a repository, so the session stays unmeasured", () => {
+    assert.equal(repoFromPaths([file(root, "scratch", "notes.md")]), null);
+    assert.equal(repoFromPaths([]), null);
+    assert.equal(
+      composerPaths({}, [{ toolFormerData: { params: { query: "relative/only" } } }]).length,
+      0,
+    );
+  });
+
+  it("never caches a verdict from a walk that ran out of levels", () => {
+    // 70 folders below the repository: past the 64-level cap, so the deep
+    // lookup cannot reach `.git` — but it must not teach the cache that the
+    // folders it passed hold no repository.
+    const parts = Array.from({ length: 70 }, (_, i) => `d${i}`);
+    const deep = join(app, ...parts);
+    mkdirSync(deep, { recursive: true });
+    const rootOf = gitRootFinder();
+    assert.equal(rootOf(join(deep, "x.ts")), null);
+    assert.equal(rootOf(join(app, ...parts.slice(0, 40), "y.ts")), app);
+  });
+
+  it("cleans up", () => rmSync(root, { recursive: true, force: true }));
+});
+
+describe("cursor-ide / projectsByComposer", () => {
+  it("marks remote workspaces, so their tool paths are never read against this disk", async () => {
+    const DatabaseSync = await databaseSync();
+    const storage = mkdtempSync(join(tmpdir(), "ai-score-ws-"));
+    const workspace = (name, folder, composerId) => {
+      const dir = join(storage, name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "workspace.json"), JSON.stringify({ folder }));
+      const db = new DatabaseSync(join(dir, "state.vscdb"));
+      db.exec("CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value BLOB)");
+      db.prepare("INSERT INTO ItemTable VALUES (?, ?)").run(
+        "composer.composerData",
+        JSON.stringify({ allComposers: [{ composerId }] }),
+      );
+      db.close();
+    };
+    workspace("local", "file:///Users/someone/app", "c-local");
+    workspace("remote", "vscode-remote://ssh-remote+box/home/someone/app", "c-remote");
+    const projects = projectsByComposer(storage, DatabaseSync);
+    assert.deepEqual(
+      { dir: projects.get("c-local")?.dir, remote: projects.get("c-local")?.remote },
+      { dir: "/Users/someone/app", remote: false },
+    );
+    assert.deepEqual(
+      { dir: projects.get("c-remote")?.dir, remote: projects.get("c-remote")?.remote },
+      { dir: null, remote: true },
+    );
+    rmSync(storage, { recursive: true, force: true });
   });
 });
 
