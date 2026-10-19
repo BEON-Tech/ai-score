@@ -35,6 +35,11 @@ export interface ComposerProject {
   projectId: string;
   /** Raw local path — consulted for git history, never serialized. */
   dir: string | null;
+  /**
+   * The workspace is a remote folder (SSH, WSL, container). Its tool paths
+   * name the remote machine's disk, so they must not be read against this one.
+   */
+  remote: boolean;
 }
 
 /** Composers are workspace-scoped; the mapping only exists in workspaceStorage. */
@@ -59,10 +64,12 @@ export function projectsByComposer(
       /* a workspace with no folder — the composers still count, the project does not */
     }
     const path = folder ? workspacePath(folder) : null;
+    // Remote workspaces reduce to a URI, not a directory on this disk.
+    const local = path !== null && /^(?:[A-Za-z]:)?[\\/]/.test(path);
     const project: ComposerProject = {
       projectId: hash16(path ?? dir),
-      // Remote workspaces reduce to a URI, not a directory on this disk.
-      dir: path && /^(?:[A-Za-z]:)?[\\/]/.test(path) ? path : null,
+      dir: local ? path : null,
+      remote: path !== null && !local,
     };
     let db: any;
     try {
@@ -107,28 +114,38 @@ export function workspacePath(folder: string): string {
  * when the path does not exist on this disk. Memoized per directory, since a
  * busy composer names the same few folders hundreds of times.
  */
-function gitRootFinder(): (path: string) => string | null {
+export function gitRootFinder(): (path: string) => string | null {
   const cache = new Map<string, string | null>();
   return (path) => {
     const seen: string[] = [];
     let dir = path;
     let root: string | null = null;
+    // Only two endings are verdicts — a `.git` found, or the filesystem root
+    // reached without one. Running out of levels is neither, so nothing seen
+    // on such a walk is cached: a shallower lookup through the same folders
+    // must still be able to find a repository above the cap.
+    let settled = false;
     for (let i = 0; i < 64; i++) {
       const cached = cache.get(dir);
       if (cached !== undefined) {
         root = cached;
+        settled = true;
         break;
       }
       seen.push(dir);
       if (existsSync(join(dir, ".git"))) {
         root = dir;
+        settled = true;
         break;
       }
       const parent = dirname(dir);
-      if (parent === dir) break;
+      if (parent === dir) {
+        settled = true;
+        break;
+      }
       dir = parent;
     }
-    for (const visited of seen) cache.set(visited, root);
+    if (settled) for (const visited of seen) cache.set(visited, root);
     return root;
   };
 }
@@ -490,7 +507,7 @@ function collectSessions(
     // The workspace link first; failing that, the repository the agent's own
     // file paths point into. Only the git delivery cross-check reads it.
     let dir = project?.dir ?? null;
-    if (!dir) {
+    if (!dir && !project?.remote) {
       dir = repoFromPaths(composerPaths(composer, bubbles), rootOf);
       if (dir) linkedByPaths++;
     }

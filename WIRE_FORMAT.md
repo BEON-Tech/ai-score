@@ -238,18 +238,18 @@ Values are numbers, booleans, or arrays of harness-defined enum values.
 Cursor is two harnesses because it is two products with unrelated storage, and
 neither records everything the others do. What each one can and cannot report:
 
-| Field                    | `cursor-cli`                                 | `cursor-ide`                                      |
-| ------------------------ | -------------------------------------------- | ------------------------------------------------- |
-| `models` token counts    | **none** — model id with a zero usage bucket | `input` / `output` per model (no cache split)     |
-| `costUsd`                | never recorded                               | separately billed requests only; `null` otherwise |
-| `startedAt` / `endedAt`  | store creation time → file mtime             | composer `createdAt` → `lastUpdatedAt`            |
-| `agentic.longestTurnMs`  | **null** — messages carry no clock           | from the per-request client timings               |
-| `counts.toolErrors`      | not recorded                                 | tool status `error`                               |
-| `counts.toolDenials`     | not recorded                                 | tool decision `rejected`                          |
-| `counts.interruptions`   | not recorded                                 | tool status `cancelled`                           |
-| `outcome.additions` etc. | estimated from successful edit-call args     | composer diff totals                              |
-| `outcome.localCommits`   | never — the store hides the working dir      | from the workspace folder's git history           |
-| `projectId`              | hash of Cursor's own project key             | hash of the workspace folder path                 |
+| Field                    | `cursor-cli`                                 | `cursor-ide`                                                                                                                                                                   |
+| ------------------------ | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `models` token counts    | **none** — model id with a zero usage bucket | `input` / `output` per model (no cache split)                                                                                                                                  |
+| `costUsd`                | never recorded                               | separately billed requests only; `null` otherwise                                                                                                                              |
+| `startedAt` / `endedAt`  | store creation time → file mtime             | composer `createdAt` → `lastUpdatedAt`                                                                                                                                         |
+| `agentic.longestTurnMs`  | **null** — messages carry no clock           | from the per-request client timings                                                                                                                                            |
+| `counts.toolErrors`      | not recorded                                 | tool status `error`                                                                                                                                                            |
+| `counts.toolDenials`     | not recorded                                 | tool decision `rejected`                                                                                                                                                       |
+| `counts.interruptions`   | not recorded                                 | tool status `cancelled`                                                                                                                                                        |
+| `outcome.additions` etc. | estimated from successful edit-call args     | composer diff totals                                                                                                                                                           |
+| `outcome.localCommits`   | never — the store hides the working dir      | from the workspace folder's git history; when Cursor no longer links the chat to a workspace, from the repository its tool-call paths point into (never for remote workspaces) |
+| `projectId`              | hash of Cursor's own project key             | hash of the workspace folder path                                                                                                                                              |
 
 Two consequences worth stating plainly:
 

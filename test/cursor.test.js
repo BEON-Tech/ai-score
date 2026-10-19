@@ -7,9 +7,12 @@ import { join } from "node:path";
 import {
   composerPaths,
   foldComposer,
+  gitRootFinder,
+  projectsByComposer,
   repoFromPaths,
   workspacePath,
 } from "../dist/adapters/cursor-ide.js";
+import { databaseSync } from "../dist/util.js";
 import { newSessionRecord } from "../dist/util.js";
 
 const utf8 = (s) => new TextEncoder().encode(s);
@@ -232,7 +235,50 @@ describe("cursor-ide / locating a chat's repository from its file paths", () => 
     );
   });
 
+  it("never caches a verdict from a walk that ran out of levels", () => {
+    // 70 folders below the repository: past the 64-level cap, so the deep
+    // lookup cannot reach `.git` — but it must not teach the cache that the
+    // folders it passed hold no repository.
+    const parts = Array.from({ length: 70 }, (_, i) => `d${i}`);
+    const deep = join(app, ...parts);
+    mkdirSync(deep, { recursive: true });
+    const rootOf = gitRootFinder();
+    assert.equal(rootOf(join(deep, "x.ts")), null);
+    assert.equal(rootOf(join(app, ...parts.slice(0, 40), "y.ts")), app);
+  });
+
   it("cleans up", () => rmSync(root, { recursive: true, force: true }));
+});
+
+describe("cursor-ide / projectsByComposer", () => {
+  it("marks remote workspaces, so their tool paths are never read against this disk", async () => {
+    const DatabaseSync = await databaseSync();
+    const storage = mkdtempSync(join(tmpdir(), "ai-score-ws-"));
+    const workspace = (name, folder, composerId) => {
+      const dir = join(storage, name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "workspace.json"), JSON.stringify({ folder }));
+      const db = new DatabaseSync(join(dir, "state.vscdb"));
+      db.exec("CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value BLOB)");
+      db.prepare("INSERT INTO ItemTable VALUES (?, ?)").run(
+        "composer.composerData",
+        JSON.stringify({ allComposers: [{ composerId }] }),
+      );
+      db.close();
+    };
+    workspace("local", "file:///Users/someone/app", "c-local");
+    workspace("remote", "vscode-remote://ssh-remote+box/home/someone/app", "c-remote");
+    const projects = projectsByComposer(storage, DatabaseSync);
+    assert.deepEqual(
+      { dir: projects.get("c-local")?.dir, remote: projects.get("c-local")?.remote },
+      { dir: "/Users/someone/app", remote: false },
+    );
+    assert.deepEqual(
+      { dir: projects.get("c-remote")?.dir, remote: projects.get("c-remote")?.remote },
+      { dir: null, remote: true },
+    );
+    rmSync(storage, { recursive: true, force: true });
+  });
 });
 
 describe("cursor-ide / foldComposer", () => {
