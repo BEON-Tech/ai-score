@@ -16,7 +16,7 @@ import {
   TurnClock,
   usageBucket,
 } from "../util.js";
-import { toolOutcome, WorkflowTracker } from "../workflow.js";
+import { keepChangedFiles, toolOutcome, WorkflowTracker } from "../workflow.js";
 
 /**
  * The Cursor desktop app is a VS Code fork, so its chat history lives in the
@@ -397,6 +397,7 @@ export function foldComposer(
     thinkingBlocks: thinking,
   };
   s.workflow = workflow.finish();
+  keepChangedFiles(s, workflow);
   return s;
 }
 

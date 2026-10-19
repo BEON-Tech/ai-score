@@ -13,7 +13,7 @@ import {
   toMs,
   usageBucket,
 } from "../util.js";
-import { toolOutcome, WorkflowTracker } from "../workflow.js";
+import { keepChangedFiles, toolOutcome, WorkflowTracker } from "../workflow.js";
 import { workspacePath } from "./cursor-ide.js";
 
 /**
@@ -190,6 +190,7 @@ export function foldChatSession(data: any, projectId: string): SessionRecord | n
     subagentRuns,
   };
   s.workflow = workflow.finish();
+  keepChangedFiles(s, workflow);
   return s;
 }
 

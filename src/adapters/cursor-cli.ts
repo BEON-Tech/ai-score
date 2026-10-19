@@ -15,7 +15,7 @@ import {
   toIso,
   toMs,
 } from "../util.js";
-import { toolOutcome, WorkflowTracker } from "../workflow.js";
+import { keepChangedFiles, toolOutcome, WorkflowTracker } from "../workflow.js";
 
 /**
  * `cursor-agent` stores each conversation as a content-addressed blob store:
@@ -177,6 +177,7 @@ export function foldMessages(
   }
   closeTurn();
   s.workflow = workflow.finish();
+  keepChangedFiles(s, workflow);
   // The store records no diff summary; successful edit calls imply one.
   const estimated = workflow.estimatedOutcome();
   s.outcome.additions ??= estimated.additions;
