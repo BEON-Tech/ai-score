@@ -15,7 +15,7 @@ import {
   TurnClock,
   usageBucket,
 } from "../util.js";
-import { toolOutcome, WorkflowTracker } from "../workflow.js";
+import { keepChangedFiles, toolOutcome, WorkflowTracker } from "../workflow.js";
 import type { ToolOutcome } from "../workflow.js";
 
 /**
@@ -250,6 +250,7 @@ export async function parseSession(
     skillCalls,
   };
   s.workflow = workflow.finish();
+  keepChangedFiles(s, workflow);
   // `session.shutdown` carries the real diff stats, but a session that
   // crashed or is still open never wrote one — fall back to the estimate the
   // successful edit calls imply rather than reporting nothing.

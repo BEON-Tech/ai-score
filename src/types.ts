@@ -70,6 +70,15 @@ export interface SessionOutcome {
    * unknown, is not a git repository, or git identity is unset.
    */
   localCommits: number | null;
+  /**
+   * How `localCommits` was attributed (additive). `files`: only commits that
+   * touch a file this session's agent edited, up to `DELIVERY_FILES_WINDOW_MS`
+   * after it ended. `files+time`: the same, plus any commit in the short
+   * time window — the session also edited through the shell, so its file list
+   * is incomplete. `time`: no edited file is known; any commit in the short
+   * window counts, as before. Absent when `localCommits` is null.
+   */
+  localCommitsMatch?: "files" | "files+time" | "time";
 }
 
 export type WorkflowCodeChange = "success" | "failure" | "none" | "unknown";

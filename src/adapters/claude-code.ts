@@ -15,7 +15,7 @@ import {
   TurnClock,
   usageBucket,
 } from "../util.js";
-import { toolOutcome, WorkflowTracker } from "../workflow.js";
+import { keepChangedFiles, toolOutcome, WorkflowTracker } from "../workflow.js";
 
 const INTERRUPT_MARKERS = ["[Request interrupted by user", "[Request cancelled by user"];
 
@@ -324,6 +324,7 @@ export async function parseSession(
   s.startedAt = toIso(firstTs);
   s.endedAt = toIso(lastTs);
   s.workflow = workflow.finish();
+  keepChangedFiles(s, workflow);
   // Null when no edit succeeded — "nothing measured", never "measured zero".
   const estimated = workflow.estimatedOutcome();
   s.outcome.additions = estimated.additions;

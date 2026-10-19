@@ -169,10 +169,34 @@ const MUTATION_PATH_KEYS = [
   "notebookPath",
   "target_file",
   "targetFile",
+  // Cursor names the file relative to the workspace folder.
+  "relativeWorkspacePath",
 ];
 
-/** Target paths of a mutation tool call, or [] when the input names none. */
+/** Paths an `apply_patch` body names in its `*** Add/Update/Delete File:` headers. */
+function patchTargets(patch: string | undefined): string[] {
+  const targets: string[] = [];
+  for (const match of patch?.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm) ?? []) {
+    targets.push(match[1].trim());
+  }
+  return targets;
+}
+
+/**
+ * Target paths of a mutation tool call, or [] when the input names none.
+ * Codex and Cursor hand their arguments over as a JSON string, and Codex's
+ * custom `apply_patch` as the bare patch text, so a string is read as both.
+ */
 function mutationTargets(input: unknown): string[] {
+  if (typeof input === "string") {
+    try {
+      const parsed: unknown = JSON.parse(input);
+      if (parsed && typeof parsed === "object") return mutationTargets(parsed);
+    } catch {
+      /* not JSON — perhaps the patch itself */
+    }
+    return patchTargets(input);
+  }
   if (!input || typeof input !== "object" || Array.isArray(input)) return [];
   const record = input as Record<string, unknown>;
   const targets: string[] = [];
@@ -185,9 +209,7 @@ function mutationTargets(input: unknown): string[] {
     const patch = [record["input"], record["patch"], record["content"]].find(
       (value) => typeof value === "string",
     ) as string | undefined;
-    for (const match of patch?.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm) ?? []) {
-      targets.push(match[1].trim());
-    }
+    targets.push(...patchTargets(patch));
   }
   return targets;
 }
@@ -817,6 +839,28 @@ export function toolOutcome(value: unknown, depth = 0): ToolOutcome {
   return "unknown";
 }
 
+/** What a session edited, for matching commits to it. See `changedFileSet`. */
+export interface ChangedFiles {
+  paths: string[];
+  complete: boolean;
+}
+
+/**
+ * Where a session's changed files ride from its adapter to the git
+ * attribution. A symbol key, because `JSON.stringify` never serializes one:
+ * the paths cannot reach the payload even if the session object does.
+ */
+export const CHANGED_FILES: unique symbol = Symbol("changedFiles");
+
+/** Keeps a finished tracker's changed files on its session, out of the payload. */
+export function keepChangedFiles(session: object, tracker: WorkflowTracker): void {
+  (session as Record<symbol, unknown>)[CHANGED_FILES] = tracker.changedFileSet();
+}
+
+export function changedFilesOf(session: object): ChangedFiles | undefined {
+  return (session as Record<symbol, ChangedFiles | undefined>)[CHANGED_FILES];
+}
+
 export class WorkflowTracker {
   private readonly events: WorkflowEvent[] = [];
   private readonly callIds = new Map<string, WorkflowEvent>();
@@ -985,6 +1029,23 @@ export class WorkflowTracker {
       turn: this.turn >= 0 ? this.turn : null,
       name: "delivery",
     });
+  }
+
+  /**
+   * The files this session's successful edits named, as written by the
+   * harness (absolute, or relative to the session's directory), and whether
+   * that list is the whole story: false when some successful mutation named no
+   * target (a `sed -i` through the shell), so other files may have changed
+   * too. Feeds the local git attribution only; never serialized.
+   */
+  changedFileSet(): ChangedFiles {
+    const mutations = this.events.filter(
+      (event) => event.kind === "mutation" && event.outcome === "success",
+    );
+    return {
+      paths: [...this.changedFiles],
+      complete: mutations.every((event) => (event.targets?.length ?? 0) > 0),
+    };
   }
 
   /** Session-level diff evidence proves a change, but not where it happened. */

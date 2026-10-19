@@ -15,7 +15,7 @@ import {
   TurnClock,
   usageBucket,
 } from "../util.js";
-import { toolOutcome, WorkflowTracker } from "../workflow.js";
+import { keepChangedFiles, toolOutcome, WorkflowTracker } from "../workflow.js";
 import type { ToolOutcome } from "../workflow.js";
 
 /** Flattens codex's string-or-text-block output for transient inspection. */
@@ -260,6 +260,7 @@ async function parseSession(
     gitRepo,
   };
   s.workflow = workflow.finish();
+  keepChangedFiles(s, workflow);
   // No native diff summary; apply_patch arguments imply one.
   const estimated = workflow.estimatedOutcome();
   s.outcome.additions = estimated.additions;
