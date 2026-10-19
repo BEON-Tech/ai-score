@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import type { Adapter, HarnessReport, SessionRecord } from "../types.js";
 import {
   databaseSync,
@@ -99,6 +99,113 @@ export function workspacePath(folder: string): string {
     /* not a URI — take it as written */
   }
   return folder;
+}
+
+/**
+ * The git repository containing `path`: the nearest ancestor holding a `.git`
+ * (a directory, or the file a worktree leaves). Null when there is none, or
+ * when the path does not exist on this disk. Memoized per directory, since a
+ * busy composer names the same few folders hundreds of times.
+ */
+function gitRootFinder(): (path: string) => string | null {
+  const cache = new Map<string, string | null>();
+  return (path) => {
+    const seen: string[] = [];
+    let dir = path;
+    let root: string | null = null;
+    for (let i = 0; i < 64; i++) {
+      const cached = cache.get(dir);
+      if (cached !== undefined) {
+        root = cached;
+        break;
+      }
+      seen.push(dir);
+      if (existsSync(join(dir, ".git"))) {
+        root = dir;
+        break;
+      }
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    for (const visited of seen) cache.set(visited, root);
+    return root;
+  };
+}
+
+/** Every string under `value`, however deeply nested, capped so one huge blob cannot stall a scan. */
+function collectStrings(value: unknown, into: string[], budget = { left: 2_000 }): string[] {
+  if (budget.left <= 0) return into;
+  if (typeof value === "string") {
+    budget.left--;
+    into.push(value);
+  } else if (Array.isArray(value)) {
+    for (const item of value) collectStrings(item, into, budget);
+  } else if (value && typeof value === "object") {
+    for (const item of Object.values(value)) collectStrings(item, into, budget);
+  }
+  return into;
+}
+
+/**
+ * Local absolute paths a composer's tool calls named — the files the agent
+ * read and edited — plus the file URIs the composer keeps its own diff state
+ * under. Tool params arrive as an object or as a JSON string, depending on the
+ * Cursor build. Read in memory to locate a repository; never serialized.
+ */
+export function composerPaths(composer: any, bubbles: any[]): string[] {
+  const raw: string[] = [
+    ...Object.keys(composer?.originalFileStates ?? {}),
+    ...Object.keys(composer?.codeBlockData ?? {}),
+  ];
+  for (const bubble of bubbles) {
+    const tool = bubble?.toolFormerData;
+    if (!tool) continue;
+    for (const args of [tool.params, tool.rawArgs]) {
+      let parsed = args;
+      if (typeof args === "string") {
+        try {
+          parsed = JSON.parse(args);
+        } catch {
+          parsed = args;
+        }
+      }
+      collectStrings(parsed, raw);
+    }
+  }
+  const paths: string[] = [];
+  for (const value of raw) {
+    if (value.length > 1_024 || value.includes("\n")) continue;
+    const path = value.startsWith("file://") ? workspacePath(value) : value;
+    if (isAbsolute(path)) paths.push(path);
+  }
+  return paths;
+}
+
+/**
+ * The repository most of `paths` live in, or null when none of them is inside
+ * one. The fallback for composers Cursor never linked to a workspace: recent
+ * Cursor builds stopped writing `composer.composerData` into workspaceStorage,
+ * so every chat since then reached git-local without a directory and shipped
+ * `localCommits: null` — in one cohort, every Cursor IDE coding session
+ * inside the scoring window. On chats that still carry the link, the
+ * repository read this way matched it in 158 of 158.
+ */
+export function repoFromPaths(paths: Iterable<string>, rootOf = gitRootFinder()): string | null {
+  const votes = new Map<string, number>();
+  for (const path of paths) {
+    const root = rootOf(path);
+    if (root) votes.set(root, (votes.get(root) ?? 0) + 1);
+  }
+  let best: string | null = null;
+  let most = 0;
+  for (const [root, count] of votes) {
+    if (count > most) {
+      best = root;
+      most = count;
+    }
+  }
+  return best;
 }
 
 /**
@@ -339,6 +446,8 @@ function collectSessions(
   }
 
   const bubbleStmt = db.prepare("SELECT value FROM cursorDiskKV WHERE key = ?");
+  const rootOf = gitRootFinder();
+  let linkedByPaths = 0;
   for (const composer of composers) {
     const touched = toMs(composer.lastUpdatedAt) ?? toMs(composer.createdAt);
     if (touched === null || touched < ctx.since.getTime()) continue;
@@ -378,9 +487,19 @@ function collectSessions(
     ) {
       continue;
     }
-    if (project?.dir) ctx.recordProjectDir?.(s.id, project.dir);
+    // The workspace link first; failing that, the repository the agent's own
+    // file paths point into. Only the git delivery cross-check reads it.
+    let dir = project?.dir ?? null;
+    if (!dir) {
+      dir = repoFromPaths(composerPaths(composer, bubbles), rootOf);
+      if (dir) linkedByPaths++;
+    }
+    if (dir) ctx.recordProjectDir?.(s.id, dir);
     report.sessions.push(s);
     report.sessionsIncluded++;
+  }
+  if (linkedByPaths > 0) {
+    ctx.verbose(`cursor-ide: ${linkedByPaths} chats located in a repository by their file paths`);
   }
 }
 
