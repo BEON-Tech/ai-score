@@ -255,12 +255,24 @@ export interface Score {
   workflow: ScoreWorkflow | null;
 }
 
+/** Where a run sits on the public board, overall and within the submitter's country. */
+export interface Standing {
+  position: number;
+  of: number;
+  country: { code: string; position: number; of: number } | null;
+}
+
 /** Parsed upload response. Every field is null when the shape is unfamiliar. */
 export interface SubmissionResult {
   id: string | null;
   score: Score | null;
   /** Where the submitter can view this run in full — absent on older servers. */
   url: string | null;
+  /** The public board, and this run's place on it — absent on older servers. */
+  board: string | null;
+  standing: Standing | null;
+  /** The submitter's friend-challenge link — absent on older servers. */
+  challenge: string | null;
 }
 
 export interface CollectContext {

@@ -23,14 +23,12 @@ const FULL_BODY = JSON.stringify({
     total: 92,
     version: 4,
     dimensions: {
-      leverage: { score: 23.1, max: 25, signals: { toolCallsPerPrompt: 20.6 } },
-      craft: dimension(13.2, 15),
-      output: dimension(9.1, 10),
-      customization: dimension(4.7, 5),
-      efficiency: dimension(5, 5),
-      verification: { score: 9, max: 10, signals: { attempted: 9, observable: 10 } },
-      completion: { score: 20, max: 25, signals: { passed: 8, observable: 10 } },
-      autonomy: { score: 3, max: 5, signals: { autonomous: 6, observable: 10 } },
+      leverage: { score: 23.1, max: 30, signals: { toolCallsPerPrompt: 20.6 } },
+      craft: dimension(13.2, 20),
+      verification: { score: 9, max: 15, signals: { attempted: 9, legible: 10 } },
+      delivery: { score: 12, max: 15, signals: { delivered: 8, decidable: 10 } },
+      consistency: dimension(7, 10),
+      customization: dimension(4.7, 10),
     },
     workflow: {
       status: "scored",
@@ -50,7 +48,12 @@ const FULL_BODY = JSON.stringify({
       },
     },
   },
+  board: "https://score.example.com/leaderboard",
+  standing: { position: 9, of: 16, country: { code: "AR", position: 2, of: 5 } },
+  challenge: { url: "https://score.example.com/challenge/abcdefghjkmn" },
 });
+
+const EMPTY = { id: null, score: null, url: null, board: null, standing: null, challenge: null };
 
 describe("parseSubmission", () => {
   it("reads id and every dimension out of a well-formed response", () => {
@@ -62,16 +65,34 @@ describe("parseSubmission", () => {
     assert.deepEqual(Object.keys(score.dimensions), [
       "leverage",
       "craft",
-      "output",
-      "customization",
-      "efficiency",
       "verification",
-      "completion",
-      "autonomy",
+      "delivery",
+      "consistency",
+      "customization",
     ]);
     assert.equal(score.dimensions.leverage.signals.toolCallsPerPrompt, 20.6);
     assert.equal(score.workflow.status, "scored");
     assert.equal(score.workflow.evidence.observableSessions, 10);
+  });
+
+  it("reads the board extras, and tolerates their absence", () => {
+    const { board, standing, challenge } = parseSubmission(FULL_BODY);
+    assert.equal(board, "https://score.example.com/leaderboard");
+    assert.deepEqual(standing, {
+      position: 9,
+      of: 16,
+      country: { code: "AR", position: 2, of: 5 },
+    });
+    assert.equal(challenge, "https://score.example.com/challenge/abcdefghjkmn");
+    const older = parseSubmission(JSON.stringify({ id: "a", url: "https://s.example.com/x" }));
+    assert.equal(older.board, null);
+    assert.equal(older.standing, null);
+    assert.equal(older.challenge, null);
+    // A standing with a malformed country keeps the overall position.
+    const partial = parseSubmission(
+      JSON.stringify({ id: "a", standing: { position: 3, of: 8, country: { code: 7 } } }),
+    );
+    assert.deepEqual(partial.standing, { position: 3, of: 8, country: null });
   });
 
   it("keeps dimensions the client has never heard of", () => {
@@ -87,25 +108,19 @@ describe("parseSubmission", () => {
   // succeeded by the time the body is parsed, so throwing would turn a
   // successful submission into a reported failure.
   it("returns nulls for a non-JSON body", () => {
-    assert.deepEqual(parseSubmission("<html>502 Bad Gateway</html>"), {
-      id: null,
-      score: null,
-      url: null,
-    });
+    assert.deepEqual(parseSubmission("<html>502 Bad Gateway</html>"), EMPTY);
   });
 
   it("returns nulls for JSON that is not an object", () => {
-    const empty = { id: null, score: null, url: null };
-    assert.deepEqual(parseSubmission("[1,2,3]"), empty);
-    assert.deepEqual(parseSubmission("null"), empty);
-    assert.deepEqual(parseSubmission('"ok"'), empty);
+    assert.deepEqual(parseSubmission("[1,2,3]"), EMPTY);
+    assert.deepEqual(parseSubmission("null"), EMPTY);
+    assert.deepEqual(parseSubmission('"ok"'), EMPTY);
   });
 
   it("keeps the id even when the score is unusable", () => {
     assert.deepEqual(parseSubmission('{"id":"abc","score":{"total":"nope"}}'), {
+      ...EMPTY,
       id: "abc",
-      score: null,
-      url: null,
     });
   });
 
@@ -173,9 +188,8 @@ describe("renderScore", () => {
 
   it("shows the total against the sum of the dimension maxima", () => {
     const out = plain(renderScore(score, null));
-    assert.match(out, /O V E R A L L\s+S C O R E/);
+    assert.match(out, /Y O U R\s+S C O R E/);
     assert.match(out, /92 of 100/);
-    assert.match(out, /exceptional/);
     assert.match(out, /scoring v4/);
   });
 
@@ -192,7 +206,7 @@ describe("renderScore", () => {
         {
           total: 68,
           version: 4,
-          dimensions: { leverage: dimension(22, 25), completion: dimension(15, 25) },
+          dimensions: { leverage: dimension(22, 30), delivery: dimension(9, 15) },
           workflow: {
             status: "insufficient_evidence",
             scoringVersion: 4,
@@ -238,11 +252,40 @@ describe("renderScore", () => {
     assert.doesNotMatch(out, /submission abc-123/);
   });
 
-  it("bands the total by percentage, not by raw points", () => {
-    const halfOfTen = { total: 5, version: 1, dimensions: { a: dimension(5, 10) } };
-    assert.match(plain(renderScore(halfOfTen, null)), /developing/);
-    const nearlyAll = { total: 9.5, version: 1, dimensions: { a: dimension(9.5, 10) } };
-    assert.match(plain(renderScore(nearlyAll, null)), /exceptional/);
+  it("prints no verdict word of its own — the site shows none", () => {
+    const out = plain(renderScore(score, null));
+    assert.doesNotMatch(out, /exceptional|strong|developing|early/);
+  });
+
+  it("prints the board standing and the challenge link when the server sent them", () => {
+    const { board, standing, challenge } = parseSubmission(FULL_BODY);
+    const out = plain(
+      renderScore(score, "abc", "https://s.example.com/submissions/abc", {
+        board,
+        standing,
+        challenge,
+      }),
+    );
+    assert.match(out, /on the board\s+#9 of 16 · #2 of 5 in Argentina/);
+    assert.match(out, /https:\/\/score\.example\.com\/leaderboard/);
+    assert.match(out, /challenge\s+https:\/\/score\.example\.com\/challenge\/abcdefghjkmn/);
+  });
+
+  it("says unranked when there is a board but no standing", () => {
+    const out = plain(
+      renderScore(score, "abc", "https://s.example.com/submissions/abc", {
+        board: "https://s.example.com/leaderboard",
+        standing: null,
+        challenge: null,
+      }),
+    );
+    assert.match(out, /unranked until a scan with more usage/);
+    assert.doesNotMatch(out, /challenge/);
+  });
+
+  it("prints neither board line nor challenge for an older server", () => {
+    const out = plain(renderScore(score, "abc", "https://s.example.com/submissions/abc"));
+    assert.doesNotMatch(out, /on the board|challenge/);
   });
 
   it("survives an empty dimensions object", () => {

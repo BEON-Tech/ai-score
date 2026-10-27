@@ -1,4 +1,4 @@
-import type { HarnessReport, Payload, Score, TokenUsage } from "./types.js";
+import type { HarnessReport, Payload, Score, Standing, TokenUsage } from "./types.js";
 import {
   bar,
   blockText,
@@ -6,11 +6,13 @@ import {
   compact,
   cols,
   grouped,
+  MARK,
   money,
   padEnd,
   padStart,
   type Paint,
   shortDate,
+  tint,
   track,
   WORDMARK,
 } from "./ui.js";
@@ -105,20 +107,23 @@ export interface HeaderInfo {
 
 /**
  * Printed before the scan starts, so the brand and the parameters of the run
- * are on screen while the slow part happens.
+ * are on screen while the slow part happens. The product mark and name lead;
+ * the BEON.tech wordmark signs as the maker, as the site's footer does.
  */
 export function renderHeader(info: HeaderInfo): string {
   const lines: string[] = [""];
 
   const beside = [
-    `${c.text("ai-score")} ${c.faint(info.version)}`,
-    c.muted("overall score report"),
+    `${c.bold(c.text("AI Workflow Score"))} ${c.faint(info.version)}`,
+    c.muted("your score, from local agent logs"),
     "",
   ];
-  for (const [i, row] of WORDMARK.entries()) {
-    // ".tech" sits on the wordmark's baseline — the mark is BEON.tech, not BEON.
-    const suffix = i === 2 ? c.muted(".tech") : "     ";
-    lines.push(`${PAD}${c.blue(row)}${suffix}   ${beside[i] ?? ""}`.trimEnd());
+  // "by" sits on the wordmark's middle row; ".tech" on its baseline — the
+  // mark is BEON.tech, not BEON.
+  const by = ["   ", c.faint("by "), "   "];
+  for (const [i, row] of MARK.entries()) {
+    const wordmark = `${by[i]}${c.blue(WORDMARK[i] as string)}${i === 2 ? c.muted(".tech") : ""}`;
+    lines.push(`${PAD}${row}   ${padEnd(beside[i] ?? "", 36)}${wordmark}`.trimEnd());
   }
   lines.push("");
 
@@ -375,6 +380,7 @@ export function renderPrivacy(): string {
       "",
       `${PAD}${c.faint(label)}   ${c.muted("counts, workflow states, timestamps and one-way hashes only.")}`,
       `${PAD}${indent}   ${c.muted("No raw commands, outputs, code, prompts, paths or message text.")}`,
+      `${PAD}${indent}   ${c.muted("Your name, score and city go on the public board; nothing else is published.")}`,
       `${PAD}${indent}   ${c.faint("--audit prints the exact payload before anything is sent.")}`,
       "",
     ].join("\n") + "\n"
@@ -383,26 +389,49 @@ export function renderPrivacy(): string {
 
 // ─── score ───────────────────────────────────────────────────────────────────
 
-/** Shared vocabulary so a given total always reads the same way. */
-function band(total: number, max: number): { label: string; tone: Paint } {
-  const pct = max > 0 ? total / max : 0;
-  if (pct >= 0.85) return { label: "exceptional", tone: c.ok };
-  if (pct >= 0.7) return { label: "strong", tone: c.blue };
-  if (pct >= 0.5) return { label: "developing", tone: c.warn };
-  return { label: "early", tone: c.faint };
+/**
+ * What each dimension actually measures, in the engineer's terms. The six of
+ * scoring v19; a dimension this copy has never heard of prints with no gloss
+ * rather than a stale one.
+ */
+const DIMENSION_COPY: Record<string, string> = {
+  leverage: "whole tasks delegated, long runs",
+  craft: "clear prompts, failures fixed",
+  verification: "checks after code changes",
+  delivery: "commits and PRs, not just chat",
+  consistency: "steady weekday use",
+  customization: "MCP, skills, hooks, subagents",
+};
+
+/**
+ * One hue per dimension, the same six the site's readout uses, so the
+ * terminal and the page tell the same story in the same colours. Unknown
+ * dimensions take the brand blue.
+ */
+const DIMENSION_TINT: Record<string, Paint> = {
+  leverage: tint(58, 105, 255, 69, 94),
+  craft: tint(116, 50, 255, 99, 95),
+  verification: tint(254, 104, 227, 212, 95),
+  delivery: tint(217, 47, 176, 163, 95),
+  consistency: tint(91, 132, 255, 75, 94),
+  customization: tint(157, 125, 255, 141, 95),
+};
+
+/** The board extras the server sends with a score; every field optional. */
+export interface ScoreExtras {
+  board: string | null;
+  standing: Standing | null;
+  challenge: string | null;
 }
 
-/** What each dimension actually measures, in the engineer's terms. */
-const DIMENSION_COPY: Record<string, string> = {
-  leverage: "how much work per prompt",
-  completion: "final check passed",
-  craft: "clean runs, few retries",
-  output: "shipped, not just chatted",
-  verification: "checks after code changes",
-  customization: "MCP, hooks, subagents",
-  efficiency: "cache reuse, multi-harness",
-  autonomy: "changed and checked in one turn",
-};
+/** "AR" → "Argentina", or the code itself where ICU cannot say. */
+function countryName(code: string): string {
+  try {
+    return new Intl.DisplayNames(["en"], { type: "region" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
 
 /**
  * Replaces what used to be `body.slice(0, 200)` of the raw JSON response — the
@@ -416,22 +445,24 @@ function renderScoreCard(
   copy: Record<string, string>,
   notes: string[] = [],
   url: string | null = null,
+  extras: ScoreExtras | null = null,
 ): string {
   const entries = Object.entries(score.dimensions);
   const outOf = entries.reduce((sum, [, d]) => sum + d.max, 0);
-  const { label, tone } = band(score.total, outOf);
   const digits = blockText(formatScore(score.total));
 
   const out: string[] = [rule(), ""];
 
-  // The figure and its meaning sit side by side: one glance, not two.
+  // The figure and its scale sit side by side: one glance, not two. No band
+  // label — the site prints none, and a word the page never shows would be
+  // the CLI's own verdict rather than the score's.
   const beside = [
     c.faint(track(title)),
-    `${c.bold(tone(formatScore(score.total)))} ${c.faint(`of ${outOf || 100}`)}   ${tone(label)}`,
+    `${c.bold(c.blue(formatScore(score.total)))} ${c.faint(`of ${outOf || 100}`)}`,
     score.version > 0 ? c.faint(`scoring v${score.version}`) : "",
   ];
   for (const [i, row] of digits.entries()) {
-    out.push(`${PAD}${tone(row)}    ${beside[i] ?? ""}`.trimEnd());
+    out.push(`${PAD}${c.blue(row)}    ${beside[i] ?? ""}`.trimEnd());
   }
 
   if (entries.length > 0) {
@@ -448,8 +479,7 @@ function renderScoreCard(
     );
 
     for (const [name, d] of entries) {
-      const ratio = d.max > 0 ? d.score / d.max : 0;
-      const tint = ratio >= 0.9 ? c.ok : ratio >= 0.6 ? c.blue : c.warn;
+      const hue = DIMENSION_TINT[name] ?? c.blue;
       const figure = c.text(formatScore(d.score)) + c.faint(`/${d.max}`);
       out.push(
         PAD +
@@ -457,7 +487,7 @@ function renderScoreCard(
           padEnd(c.faint(copy[name] ?? ""), copyWidth + 3) +
           padStart(figure, figureWidth + 1) +
           "  " +
-          tint(bar(d.score, d.max, meterWidth)),
+          hue(bar(d.score, d.max, meterWidth)),
       );
     }
   }
@@ -471,7 +501,31 @@ function renderScoreCard(
     out.push("");
     // The server said where this submission can be viewed, and the id is part
     // of that URL — one line serves as both the link and the support reference.
-    out.push(`${PAD}${c.faint("⌐")} ${c.muted("full report")}  ${c.under(c.muted(url))}`);
+    out.push(
+      `${PAD}${c.faint("⌐")} ${c.muted(padEnd("full report", 12))} ${c.under(c.muted(url))}`,
+    );
+    // Where the run sits on the public board, and the link to send a friend.
+    // Both only from a server that has a board; an older one sends neither.
+    if (extras?.standing) {
+      const s = extras.standing;
+      const place = [`#${s.position} of ${s.of}`];
+      if (s.country) {
+        place.push(`#${s.country.position} of ${s.country.of} in ${countryName(s.country.code)}`);
+      }
+      const link = extras.board ? `  ${c.under(c.muted(extras.board))}` : "";
+      out.push(
+        `${PAD}${c.faint("⌐")} ${c.muted(padEnd("on the board", 12))} ${c.text(place.join(" · "))}${link}`,
+      );
+    } else if (extras?.board) {
+      out.push(
+        `${PAD}${c.faint("⌐")} ${c.muted(padEnd("on the board", 12))} ${c.faint("unranked until a scan with more usage")}  ${c.under(c.muted(extras.board))}`,
+      );
+    }
+    if (extras?.challenge) {
+      out.push(
+        `${PAD}${c.faint("⌐")} ${c.muted(padEnd("challenge", 12))} ${c.under(c.muted(extras.challenge))}  ${c.faint("send it to a friend")}`,
+      );
+    }
   } else if (submissionId) {
     out.push("");
     // Set as a note rather than a labelled field: it is a support reference,
@@ -494,6 +548,7 @@ export function renderScore(
   score: Score,
   submissionId: string | null,
   url: string | null = null,
+  extras: ScoreExtras | null = null,
 ): string {
   // The evidence behind the workflow dimensions, set as the card's notes. An
   // insufficient result explains the confidence discount — thin evidence
@@ -522,7 +577,7 @@ export function renderScore(
       }
     }
   }
-  return renderScoreCard(score, submissionId, "overall score", DIMENSION_COPY, notes, url);
+  return renderScoreCard(score, submissionId, "your score", DIMENSION_COPY, notes, url, extras);
 }
 
 /** Trims a trailing ".0" so whole scores read as "92", not "92.0". */

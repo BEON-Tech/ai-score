@@ -48,13 +48,15 @@ const paint =
     LEVEL && open ? `${open}${String(s)}${RESET}` : String(s);
 
 /**
- * Brand palette from platform/login-page/tailwind.config.js — #3a69ff primary,
- * #7432ff accent. Semantic colours are kept distinct from the brand blue so a
- * "good" score never reads as merely "branded".
+ * Brand palette — #3a69ff blue, #7432ff violet, #fe68e3 pink: the three bars
+ * of the product mark and the hues of the score meters on the site. Semantic
+ * colours are kept distinct from the brand blue so a "good" score never reads
+ * as merely "branded".
  */
 export const c = {
   blue: paint(fg(58, 105, 255, 69, 94)),
   violet: paint(fg(116, 50, 255, 99, 95)),
+  pink: paint(fg(254, 104, 227, 212, 95)),
   ok: paint(fg(74, 222, 128, 114, 92)),
   warn: paint(fg(251, 191, 36, 221, 93)),
   bad: paint(fg(255, 58, 58, 203, 91)),
@@ -67,6 +69,11 @@ export const c = {
 };
 
 export type Paint = (s: string | number) => string;
+
+/** A one-off foreground colour, for the per-dimension meter hues. */
+export function tint(r: number, g: number, b: number, ansi256: number, basic: number): Paint {
+  return paint(fg(r, g, b, ansi256, basic));
+}
 
 // ─── width maths ─────────────────────────────────────────────────────────────
 
@@ -149,6 +156,16 @@ export function blockText(text: string, gap = 1): [string, string, string] {
 
 /** The BEON wordmark, 3 rows tall. */
 export const WORDMARK = blockText("BEON");
+
+/**
+ * The product mark, 3 rows tall: three bars of falling width in the score's
+ * three colours, as the site's logo draws it. Each row is the same string, so
+ * the bars read as solid columns.
+ */
+const MARK_ROW = `${c.blue("███")} ${c.violet("██")} ${c.pink("██")}`;
+export const MARK: [string, string, string] = [MARK_ROW, MARK_ROW, MARK_ROW];
+/** Visible width of a MARK row, for the column beside it. */
+export const MARK_WIDTH = 9;
 
 // ─── meters ──────────────────────────────────────────────────────────────────
 

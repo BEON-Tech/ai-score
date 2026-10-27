@@ -4,6 +4,7 @@ import type {
   Payload,
   Score,
   ScoreWorkflow,
+  Standing,
   SubmissionResult,
   WorkflowEvidenceSummary,
 } from "./types.js";
@@ -84,7 +85,14 @@ function parseWorkflow(value: unknown): ScoreWorkflow | null {
  * report a false negative.
  */
 export function parseSubmission(body: string): SubmissionResult {
-  const empty: SubmissionResult = { id: null, score: null, url: null };
+  const empty: SubmissionResult = {
+    id: null,
+    score: null,
+    url: null,
+    board: null,
+    standing: null,
+    challenge: null,
+  };
   let root: unknown;
   try {
     root = JSON.parse(body);
@@ -95,9 +103,14 @@ export function parseSubmission(body: string): SubmissionResult {
 
   const id = typeof root["id"] === "string" ? root["id"] : null;
   const url = parseViewUrl(root["url"]);
+  // The board extras (server ≥ the public board): links held to the same
+  // standard as the view url, the standing checked field by field.
+  const board = parseViewUrl(root["board"]);
+  const challenge = isRecord(root["challenge"]) ? parseViewUrl(root["challenge"]["url"]) : null;
+  const standing = parseStanding(root["standing"]);
   const raw = root["score"];
   if (!isRecord(raw) || !isFiniteNumber(raw["total"]) || !isRecord(raw["dimensions"])) {
-    return { id, score: null, url };
+    return { id, score: null, url, board, standing, challenge };
   }
 
   const dimensions: Record<string, DimensionScore> = {};
@@ -112,7 +125,22 @@ export function parseSubmission(body: string): SubmissionResult {
     dimensions,
     workflow: parseWorkflow(raw["workflow"]),
   };
-  return { id, score, url };
+  return { id, score, url, board, standing, challenge };
+}
+
+function parseStanding(value: unknown): Standing | null {
+  if (!isRecord(value) || !isFiniteNumber(value["position"]) || !isFiniteNumber(value["of"])) {
+    return null;
+  }
+  const country = value["country"];
+  const inCountry =
+    isRecord(country) &&
+    typeof country["code"] === "string" &&
+    isFiniteNumber(country["position"]) &&
+    isFiniteNumber(country["of"])
+      ? { code: country["code"], position: country["position"], of: country["of"] }
+      : null;
+  return { position: value["position"], of: value["of"], country: inCountry };
 }
 
 /**

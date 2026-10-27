@@ -1,11 +1,11 @@
 # @beon-tech/ai-score
 
-CLI that measures how an engineer uses AI coding tools. It scans the session
-data that coding harnesses already keep on your machine, derives privacy-safe
-edit/check evidence, and submits it to Beon's scoring service. The server
-returns a single Overall Score: eight dimensions covering verified workflow
-(verification, completion, autonomy) and tool usage (leverage, craft, output,
-customization, efficiency).
+The CLI behind [AI Workflow Score](https://ai-score.beon.tech), by BEON.tech.
+It scans the session data that coding agents already keep on your machine,
+derives privacy-safe edit/check evidence, and submits it for scoring. The
+server returns one score out of 100 over six dimensions — leverage, craft,
+verification, delivery, consistency and customization — and the CLI prints
+it with where you sit on the public board and your friend-challenge link.
 
 ```sh
 npx @beon-tech/ai-score              # sign in if needed, scan, summarize, upload

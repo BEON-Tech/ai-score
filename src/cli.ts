@@ -36,7 +36,7 @@ import { displayPath, hash16 } from "./util.js";
 const COMMANDS = ["login", "logout", "whoami"] as const;
 type Command = (typeof COMMANDS)[number];
 
-const HELP = `ai-score — extract AI coding harness usage into an auditable report
+const HELP = `ai-score — your AI Workflow Score, from the logs your coding agents already keep
 
 Usage
   npx @beon-tech/ai-score [options]        scan, summarize, upload
@@ -271,7 +271,13 @@ async function main(): Promise<void> {
     // The server returns a per-dimension breakdown; render it rather than
     // printing the first 200 characters of the response object.
     if (result.score) {
-      process.stderr.write(renderScore(result.score, result.id, result.url));
+      process.stderr.write(
+        renderScore(result.score, result.id, result.url, {
+          board: result.board,
+          standing: result.standing,
+          challenge: result.challenge,
+        }),
+      );
     } else process.stderr.write(renderUploaded(status, result.id, result.url));
 
     // Offer to open the full report, but only in a session that is already
