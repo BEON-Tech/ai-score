@@ -10,6 +10,7 @@ import {
   credentialPath,
   describe,
   DeviceFlowError,
+  envToken,
   invalidate,
   login,
   loginCommand,
@@ -169,7 +170,7 @@ async function main(): Promise<void> {
   const machineId = hash16(`${os.hostname()}:${os.userInfo().username}`);
 
   // Offline lookup — shows who we would submit as without a network round-trip.
-  const knownAccount = process.env[TOKEN_ENV_VAR]
+  const knownAccount = envToken()
     ? `(${TOKEN_ENV_VAR})`
     : cached(target.baseUrl, values.beon)?.identity
       ? describe(cached(target.baseUrl, values.beon)!.identity)
@@ -290,7 +291,7 @@ async function main(): Promise<void> {
     } else process.stderr.write(renderUploaded(status, result.id, result.url));
     // Only when the BEON login sent it: an AI_SCORE_TOKEN override wins for
     // both flavours, and that token may well not be a BEONer's.
-    if (values.beon && !process.env[TOKEN_ENV_VAR]) {
+    if (values.beon && !envToken()) {
       process.stderr.write(
         `  ${c.faint("⌐")} ${c.muted("This run will show in AI Coding Pulse within a few minutes.")}\n\n`,
       );

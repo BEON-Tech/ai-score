@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { promisify } from "node:util";
 import {
   cached,
   credentialKey,
@@ -78,6 +80,8 @@ async function withServer(run) {
     await new Promise((resolve) => server.close(resolve));
   }
 }
+
+const run = promisify(execFile);
 
 let sandbox;
 let previousXdg;
@@ -169,5 +173,72 @@ describe("--beon login", () => {
     );
     assert.equal(loginCommand(true), "ai-score login --beon");
     assert.equal(loginCommand(), "ai-score login");
+  });
+});
+
+/**
+ * The "will show in AI Coding Pulse" note after an upload must follow the
+ * token actually sent: the BEON login's, not an AI_SCORE_TOKEN override that
+ * may belong to anyone. Runs the real CLI with an empty home (nothing to
+ * scan, so it is fast) against a stub that records what it was sent.
+ */
+describe("--beon upload note", () => {
+  const cli = new URL("../dist/cli.js", import.meta.url).pathname;
+  const note = /will show in AI Coding Pulse/;
+
+  async function upload(env) {
+    const home = mkdtempSync(join(tmpdir(), "ai-score-upload-"));
+    const sent = [];
+    const server = createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        sent.push(req.headers.authorization);
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(JSON.stringify({ id: "run-1", url: null }));
+      });
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    // A cached BEON login, as `login --beon` would leave it.
+    mkdirSync(join(home, ".config", "beon"), { recursive: true });
+    writeFileSync(
+      join(home, ".config", "beon", "ai-score.json"),
+      JSON.stringify({
+        [`${baseUrl}#beon`]: { token: "tok-beon", expiresAt: null, identity: null },
+      }),
+    );
+    try {
+      const { stderr } = await run(process.execPath, [cli, "--beon", "--yes", "--no-browser"], {
+        env: {
+          ...process.env,
+          HOME: home,
+          XDG_CONFIG_HOME: join(home, ".config"),
+          AI_SCORE_URL: baseUrl,
+          ...env,
+        },
+      });
+      return { stderr, sent };
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+
+  it("says so when the BEON login sent the run", async () => {
+    const { stderr, sent } = await upload({ AI_SCORE_TOKEN: undefined });
+    assert.deepEqual(sent, ["Bearer tok-beon"]);
+    assert.match(stderr, note);
+  });
+
+  it("stays quiet when AI_SCORE_TOKEN sent it instead", async () => {
+    const { stderr, sent } = await upload({ AI_SCORE_TOKEN: "tok-ci" });
+    assert.deepEqual(sent, ["Bearer tok-ci"]);
+    assert.doesNotMatch(stderr, note);
+  });
+
+  it("treats an empty AI_SCORE_TOKEN as unset, for the token and the note alike", async () => {
+    const { stderr, sent } = await upload({ AI_SCORE_TOKEN: "" });
+    assert.deepEqual(sent, ["Bearer tok-beon"]);
+    assert.match(stderr, note);
   });
 });

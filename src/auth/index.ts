@@ -18,6 +18,16 @@ export type { Credential, Identity } from "./types.js";
 /** Env var escape hatch for CI and other places a browser cannot open. */
 export const TOKEN_ENV_VAR = "AI_SCORE_TOKEN";
 
+/**
+ * The token from AI_SCORE_TOKEN, or undefined when it is unset or empty. The
+ * one reader of that variable: what gets sent (`resolveToken`), who `whoami`
+ * reports, and whether the CLI says a run came from the BEON login must all
+ * agree on whether the override is in effect.
+ */
+export function envToken(): string | undefined {
+  return process.env[TOKEN_ENV_VAR] || undefined;
+}
+
 export interface AuthContext {
   /** Origin of the ai-score server, e.g. https://ai-score.beon.tech */
   baseUrl: string;
@@ -166,7 +176,7 @@ export function cached(baseUrl: string, beon = false): Credential | null {
  */
 export async function whoami(baseUrl: string, beon = false): Promise<Identity | null> {
   const origin = originOf(baseUrl);
-  const token = process.env[TOKEN_ENV_VAR] ?? readCredential(credentialKey(baseUrl, beon))?.token;
+  const token = envToken() ?? readCredential(credentialKey(baseUrl, beon))?.token;
   if (!token) return null;
   return await fetchIdentity(origin, token);
 }
@@ -176,7 +186,7 @@ export async function whoami(baseUrl: string, beon = false): Promise<Identity | 
  * interactive login when allowed. Throws with actionable guidance otherwise.
  */
 export async function resolveToken(ctx: AuthContext & { allowLogin: boolean }): Promise<string> {
-  const fromEnv = process.env[TOKEN_ENV_VAR];
+  const fromEnv = envToken();
   if (fromEnv) return fromEnv;
 
   const existing = cached(ctx.baseUrl, ctx.beon);
