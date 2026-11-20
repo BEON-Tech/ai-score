@@ -1,0 +1,27 @@
+{
+  "name": "@beon-tech/beoner-ai-score",
+  "version": "0.3.20",
+  "description": "AI Workflow Score for BEONers: @beon-tech/ai-score signed in with your BEON Google account, so your results reach AI Coding Pulse.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BEON-Tech/ai-score.git",
+    "directory": "beoner"
+  },
+  "bin": {
+    "beoner-ai-score": "cli.js"
+  },
+  "files": [
+    "cli.js",
+    "README.md"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@beon-tech/ai-score": "0.3.20"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -11,7 +11,15 @@ import { type DeviceCode, DeviceFlowError, type DeviceToken, type Identity } fro
  */
 
 /** Must match CLI_CLIENT_ID on the server. */
-const CLIENT_ID = "ai-score-cli";
+export const CLIENT_ID = "ai-score-cli";
+
+/**
+ * The BEON command's client (`--beon`). The server only lets a BEON Google
+ * account approve a code minted for it, and stamps that BEONer on every run
+ * submitted with the resulting token, which is how results reach AI Coding
+ * Pulse. Must match BEON_CLI_CLIENT_ID on the server.
+ */
+export const BEON_CLIENT_ID = "ai-score-cli-beon";
 
 const TIMEOUT_MS = 15_000;
 
@@ -59,8 +67,11 @@ export function authBase(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/api/auth`;
 }
 
-export async function requestDeviceCode(baseUrl: string): Promise<DeviceCode> {
-  const raw = asRecord(await post(`${authBase(baseUrl)}/device/code`, { client_id: CLIENT_ID }));
+export async function requestDeviceCode(
+  baseUrl: string,
+  clientId: string = CLIENT_ID,
+): Promise<DeviceCode> {
+  const raw = asRecord(await post(`${authBase(baseUrl)}/device/code`, { client_id: clientId }));
   if (typeof raw.device_code !== "string" || typeof raw.user_code !== "string") {
     throw new DeviceFlowError("invalid_response", "server did not return a device code");
   }
@@ -79,12 +90,16 @@ export async function requestDeviceCode(baseUrl: string): Promise<DeviceCode> {
  * One token attempt. Throws DeviceFlowError with `authorization_pending` while
  * the engineer has not decided yet — the caller decides how long to keep going.
  */
-export async function requestToken(baseUrl: string, deviceCode: string): Promise<DeviceToken> {
+export async function requestToken(
+  baseUrl: string,
+  deviceCode: string,
+  clientId: string = CLIENT_ID,
+): Promise<DeviceToken> {
   const raw = asRecord(
     await post(`${authBase(baseUrl)}/device/token`, {
       grant_type: DEVICE_CODE_GRANT,
       device_code: deviceCode,
-      client_id: CLIENT_ID,
+      client_id: clientId,
     }),
   );
   if (typeof raw.access_token !== "string") {

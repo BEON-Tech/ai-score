@@ -22,6 +22,14 @@ npx @beon-tech/ai-score whoami       # show which account this machine submits a
 npx @beon-tech/ai-score logout       # forget the cached token
 ```
 
+**BEONers:** use [`@beon-tech/beoner-ai-score`](beoner/) instead — the same
+CLI, signed in with your BEON Google account, so your results show up in AI
+Coding Pulse:
+
+```sh
+npx @beon-tech/beoner-ai-score       # sign in with BEON Google if needed, scan, upload
+```
+
 ## Supported harnesses
 
 | Harness           | Source scanned                                                                  |
@@ -83,6 +91,28 @@ Use `--no-browser` to print the URL instead of opening one, and
 AI_SCORE_TOKEN=… npx @beon-tech/ai-score --yes
 ```
 
+### BEONers (`--beon`)
+
+`--beon` runs the same device flow with a second client id,
+`ai-score-cli-beon`. The server only lets a BEON Google account (the
+`beon.tech` Workspace) claim and approve a code minted for it, and marks every
+run submitted with the resulting token as that BEONer's — which is what AI
+Coding Pulse reads. GitHub's email cannot say which employee a run belongs
+to; the BEON Google account can.
+
+The BEON token is cached apart from the default one (under
+`<origin>#beon` in the same credential file), so a BEONer can keep a personal
+GitHub login on the same machine: `--beon` always uses, refreshes and clears
+only the BEON login, and a plain run never sends the BEON token. `login`,
+`whoami` and `logout` all take `--beon`.
+
+BEONers run it through [`@beon-tech/beoner-ai-score`](beoner/), a few-line
+wrapper with `--beon` always on, rather than a flag they would have to
+remember on every run: a plain `npx @beon-tech/ai-score` from shell history
+would upload to their GitHub account and never reach Pulse. It depends on the
+exact `@beon-tech/ai-score` version it was released with, and the release
+workflow publishes both at one version (see _Releasing_).
+
 ## Privacy model
 
 All classification happens on-device. The CLI transiently inspects tool
@@ -126,6 +156,7 @@ whoami              print the account this machine submits as
 --url <url>         ai-score server (default: $AI_SCORE_URL or
                     https://ai-score.beon.tech)
 --no-browser        print the login URL instead of opening a browser
+--beon              BEONers: sign in and submit with your BEON Google account
 --audit             print the exact JSON payload
 --out <file>        write the payload to a file
 --dry-run           never touch the network
@@ -237,3 +268,11 @@ Publishing uses [npm trusted publishing](https://docs.npmjs.com/trusted-publishe
 (GitHub Actions OIDC — no npm tokens anywhere), which attaches a provenance
 attestation linking the published tarball to the exact commit and workflow run
 that built it. Never bump versions locally.
+
+The same release publishes [`@beon-tech/beoner-ai-score`](beoner/) at the same
+version (`scripts/sync-beoner-version.mjs` pins it), after the main package is
+out, so a problem with the wrapper never holds back `@beon-tech/ai-score`.
+Trusted publishing is configured per package, and npm only allows it once a
+package exists: its very first version has to be published by hand by an
+`@beon-tech` member (`cd beoner && npm publish --access public`), after which
+its trusted publisher is set to this repo's `release.yml`.

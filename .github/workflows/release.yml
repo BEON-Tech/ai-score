@@ -51,18 +51,37 @@ jobs:
           node dist/cli.js --help
           node dist/cli.js --dry-run
 
+      # Both packages are released at one version, in one release commit and
+      # tag: beoner/ pins its dependency on @beon-tech/ai-score to it.
       - name: Bump version
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          npm version "${{ inputs.bump || 'patch' }}" -m "Release v%s [skip ci]"
-          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+          npm version "${{ inputs.bump || 'patch' }}" --no-git-tag-version
+          version=$(node -p "require('./package.json').version")
+          node scripts/sync-beoner-version.mjs "$version"
+          git commit -am "Release v$version [skip ci]"
+          # Annotated, not lightweight: `git push --follow-tags` below only
+          # pushes annotated tags (npm version used to create one for us).
+          git tag -a "v$version" -m "Release v$version"
+          echo "version=$version" >> "$GITHUB_ENV"
 
       - name: Publish to npm
         run: pnpm publish --no-git-checks
 
       - name: Push release commit and tag
-        run: git push --follow-tags
+        run: |
+          git push --follow-tags
+          # Fail loudly if the tag did not land, rather than leave a release
+          # commit on main with no tag behind it.
+          git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null
+
+      # After the main release is out and pushed: the wrapper depends on the
+      # version just published, and a failure here (e.g. its trusted publisher
+      # not configured yet) must never hold back @beon-tech/ai-score.
+      - name: Publish @beon-tech/beoner-ai-score
+        working-directory: beoner
+        run: pnpm publish --no-git-checks
 
       - name: Summary
-        run: echo "Published @beon-tech/ai-score@${version} with provenance" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "Published @beon-tech/ai-score@${version} and @beon-tech/beoner-ai-score@${version} with provenance" >> "$GITHUB_STEP_SUMMARY"
