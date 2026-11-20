@@ -61,14 +61,20 @@ jobs:
           version=$(node -p "require('./package.json').version")
           node scripts/sync-beoner-version.mjs "$version"
           git commit -am "Release v$version [skip ci]"
-          git tag "v$version"
+          # Annotated, not lightweight: `git push --follow-tags` below only
+          # pushes annotated tags (npm version used to create one for us).
+          git tag -a "v$version" -m "Release v$version"
           echo "version=$version" >> "$GITHUB_ENV"
 
       - name: Publish to npm
         run: pnpm publish --no-git-checks
 
       - name: Push release commit and tag
-        run: git push --follow-tags
+        run: |
+          git push --follow-tags
+          # Fail loudly if the tag did not land, rather than leave a release
+          # commit on main with no tag behind it.
+          git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null
 
       # After the main release is out and pushed: the wrapper depends on the
       # version just published, and a failure here (e.g. its trusted publisher

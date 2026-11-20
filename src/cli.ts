@@ -288,7 +288,9 @@ async function main(): Promise<void> {
         }),
       );
     } else process.stderr.write(renderUploaded(status, result.id, result.url));
-    if (values.beon) {
+    // Only when the BEON login sent it: an AI_SCORE_TOKEN override wins for
+    // both flavours, and that token may well not be a BEONer's.
+    if (values.beon && !process.env[TOKEN_ENV_VAR]) {
       process.stderr.write(
         `  ${c.faint("⌐")} ${c.muted("This run will show in AI Coding Pulse within a few minutes.")}\n\n`,
       );
