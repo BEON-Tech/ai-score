@@ -45,9 +45,9 @@ Usage
   npx @beon-tech/ai-score logout           forget the cached token
   npx @beon-tech/ai-score whoami           show who this machine is signed in as
 
-  BEONers: add --beon to any of these to sign in with your BEON Google account
-  instead, so your results appear in AI Coding Pulse:
-  npx @beon-tech/ai-score --beon
+  BEONers: run npx @beon-tech/beoner-ai-score instead (same commands), which
+  signs in with your BEON Google account so your results appear in AI Coding
+  Pulse. It is this CLI with --beon always on.
 
 Scans local session data from Claude Code, Codex, Cursor and GitHub Copilot,
 normalizes it into structural metadata and locally derived workflow states.

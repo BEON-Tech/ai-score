@@ -22,11 +22,12 @@ npx @beon-tech/ai-score whoami       # show which account this machine submits a
 npx @beon-tech/ai-score logout       # forget the cached token
 ```
 
-**BEONers:** add `--beon` to run under your BEON Google account, so your
-results show up in AI Coding Pulse:
+**BEONers:** use [`@beon-tech/beoner-ai-score`](beoner/) instead — the same
+CLI, signed in with your BEON Google account, so your results show up in AI
+Coding Pulse:
 
 ```sh
-npx @beon-tech/ai-score --beon       # sign in with BEON Google if needed, scan, upload
+npx @beon-tech/beoner-ai-score       # sign in with BEON Google if needed, scan, upload
 ```
 
 ## Supported harnesses
@@ -104,6 +105,13 @@ The BEON token is cached apart from the default one (under
 GitHub login on the same machine: `--beon` always uses, refreshes and clears
 only the BEON login, and a plain run never sends the BEON token. `login`,
 `whoami` and `logout` all take `--beon`.
+
+BEONers run it through [`@beon-tech/beoner-ai-score`](beoner/), a few-line
+wrapper with `--beon` always on, rather than a flag they would have to
+remember on every run: a plain `npx @beon-tech/ai-score` from shell history
+would upload to their GitHub account and never reach Pulse. It depends on the
+exact `@beon-tech/ai-score` version it was released with, and the release
+workflow publishes both at one version (see _Releasing_).
 
 ## Privacy model
 
@@ -260,3 +268,11 @@ Publishing uses [npm trusted publishing](https://docs.npmjs.com/trusted-publishe
 (GitHub Actions OIDC — no npm tokens anywhere), which attaches a provenance
 attestation linking the published tarball to the exact commit and workflow run
 that built it. Never bump versions locally.
+
+The same release publishes [`@beon-tech/beoner-ai-score`](beoner/) at the same
+version (`scripts/sync-beoner-version.mjs` pins it), after the main package is
+out, so a problem with the wrapper never holds back `@beon-tech/ai-score`.
+Trusted publishing is configured per package, and npm only allows it once a
+package exists: its very first version has to be published by hand by an
+`@beon-tech` member (`cd beoner && npm publish --access public`), after which
+its trusted publisher is set to this repo's `release.yml`.

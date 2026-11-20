@@ -46,8 +46,16 @@ export function credentialKey(baseUrl: string, beon = false): string {
   return beon ? `${originOf(baseUrl)}#beon` : originOf(baseUrl);
 }
 
+/**
+ * Set by a wrapper package to the command its users actually type, so hints
+ * name that instead of the underlying CLI (`npx @beon-tech/beoner-ai-score`).
+ */
+export const INVOKED_AS_ENV_VAR = "AI_SCORE_INVOKED_AS";
+
 /** The login command to suggest, matching the flavour in use. */
 export function loginCommand(beon = false): string {
+  const invokedAs = process.env[INVOKED_AS_ENV_VAR];
+  if (invokedAs) return `${invokedAs} login`;
   return beon ? "ai-score login --beon" : "ai-score login";
 }
 
