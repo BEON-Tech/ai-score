@@ -12,6 +12,7 @@ import {
   DeviceFlowError,
   invalidate,
   login,
+  loginCommand,
   logout,
   resolveToken,
   TOKEN_ENV_VAR,
@@ -44,6 +45,10 @@ Usage
   npx @beon-tech/ai-score logout           forget the cached token
   npx @beon-tech/ai-score whoami           show who this machine is signed in as
 
+  BEONers: add --beon to any of these to sign in with your BEON Google account
+  instead, so your results appear in AI Coding Pulse:
+  npx @beon-tech/ai-score --beon
+
 Scans local session data from Claude Code, Codex, Cursor and GitHub Copilot,
 normalizes it into structural metadata and locally derived workflow states.
 Tool arguments, result statuses and check output are inspected only long
@@ -57,6 +62,8 @@ Options
   --url <url>         ai-score server (default: $AI_SCORE_URL or
                       ${DEFAULT_BASE_URL})
   --no-browser        never open a browser — print login and report URLs only
+  --beon              BEONers: use your BEON Google account (kept apart from
+                      any other login) so results reach AI Coding Pulse
 
 Audit
   --audit             print the exact JSON payload that would be uploaded
@@ -95,6 +102,7 @@ async function main(): Promise<void> {
       audit: { type: "boolean", default: false },
       "dry-run": { type: "boolean", default: false },
       "no-browser": { type: "boolean", default: false },
+      beon: { type: "boolean", default: false },
       yes: { type: "boolean", default: false },
       verbose: { type: "boolean", default: false },
       version: { type: "boolean", default: false },
@@ -126,6 +134,7 @@ async function main(): Promise<void> {
   const auth: AuthContext = {
     baseUrl: target.baseUrl,
     noBrowser: values["no-browser"],
+    beon: values.beon,
     log: (message) => process.stderr.write(`${message}\n`),
   };
 
@@ -162,8 +171,8 @@ async function main(): Promise<void> {
   // Offline lookup — shows who we would submit as without a network round-trip.
   const knownAccount = process.env[TOKEN_ENV_VAR]
     ? `(${TOKEN_ENV_VAR})`
-    : cached(target.baseUrl)?.identity
-      ? describe(cached(target.baseUrl)!.identity)
+    : cached(target.baseUrl, values.beon)?.identity
+      ? describe(cached(target.baseUrl, values.beon)!.identity)
       : null;
 
   // The header goes up before the scan so the run's parameters are on screen
@@ -279,6 +288,11 @@ async function main(): Promise<void> {
         }),
       );
     } else process.stderr.write(renderUploaded(status, result.id, result.url));
+    if (values.beon) {
+      process.stderr.write(
+        `  ${c.faint("⌐")} ${c.muted("This run will show in AI Coding Pulse within a few minutes.")}\n\n`,
+      );
+    }
 
     // Offer to open the full report, but only in a session that is already
     // conversational: `--yes` promised no prompts (its runs may be scripted
@@ -306,8 +320,10 @@ async function main(): Promise<void> {
   } catch (err) {
     if (err instanceof UnauthorizedError) {
       // Drop the dead token so the next run does not repeat this failure.
-      invalidate(target.baseUrl);
-      throw new Error(`${err.message}\nyour session is no longer valid — run 'ai-score login'`);
+      invalidate(target.baseUrl, values.beon);
+      throw new Error(
+        `${err.message}\nyour session is no longer valid — run '${loginCommand(values.beon)}'`,
+      );
     }
     throw err;
   }
@@ -316,7 +332,7 @@ async function main(): Promise<void> {
 async function runCommand(command: Command, auth: AuthContext): Promise<void> {
   switch (command) {
     case "login": {
-      const existing = cached(auth.baseUrl);
+      const existing = cached(auth.baseUrl, auth.beon);
       if (existing) {
         auth.log(`already signed in as ${describe(existing.identity)} — replacing that session.`);
       }
@@ -324,7 +340,7 @@ async function runCommand(command: Command, auth: AuthContext): Promise<void> {
       return;
     }
     case "logout": {
-      const removed = logout(auth.baseUrl);
+      const removed = logout(auth.baseUrl, auth.beon);
       auth.log(
         removed
           ? `signed out of ${auth.baseUrl} — token removed from ${displayPath(credentialPath())}`
@@ -333,9 +349,9 @@ async function runCommand(command: Command, auth: AuthContext): Promise<void> {
       return;
     }
     case "whoami": {
-      const identity = await whoami(auth.baseUrl);
+      const identity = await whoami(auth.baseUrl, auth.beon);
       if (!identity) {
-        auth.log(`not signed in to ${auth.baseUrl} — run 'ai-score login'.`);
+        auth.log(`not signed in to ${auth.baseUrl} — run '${loginCommand(auth.beon)}'.`);
         process.exitCode = 1;
         return;
       }

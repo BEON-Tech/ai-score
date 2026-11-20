@@ -22,6 +22,13 @@ npx @beon-tech/ai-score whoami       # show which account this machine submits a
 npx @beon-tech/ai-score logout       # forget the cached token
 ```
 
+**BEONers:** add `--beon` to run under your BEON Google account, so your
+results show up in AI Coding Pulse:
+
+```sh
+npx @beon-tech/ai-score --beon       # sign in with BEON Google if needed, scan, upload
+```
+
 ## Supported harnesses
 
 | Harness           | Source scanned                                                                  |
@@ -83,6 +90,21 @@ Use `--no-browser` to print the URL instead of opening one, and
 AI_SCORE_TOKEN=… npx @beon-tech/ai-score --yes
 ```
 
+### BEONers (`--beon`)
+
+`--beon` runs the same device flow with a second client id,
+`ai-score-cli-beon`. The server only lets a BEON Google account (the
+`beon.tech` Workspace) claim and approve a code minted for it, and marks every
+run submitted with the resulting token as that BEONer's — which is what AI
+Coding Pulse reads. GitHub's email cannot say which employee a run belongs
+to; the BEON Google account can.
+
+The BEON token is cached apart from the default one (under
+`<origin>#beon` in the same credential file), so a BEONer can keep a personal
+GitHub login on the same machine: `--beon` always uses, refreshes and clears
+only the BEON login, and a plain run never sends the BEON token. `login`,
+`whoami` and `logout` all take `--beon`.
+
 ## Privacy model
 
 All classification happens on-device. The CLI transiently inspects tool
@@ -126,6 +148,7 @@ whoami              print the account this machine submits as
 --url <url>         ai-score server (default: $AI_SCORE_URL or
                     https://ai-score.beon.tech)
 --no-browser        print the login URL instead of opening a browser
+--beon              BEONers: sign in and submit with your BEON Google account
 --audit             print the exact JSON payload
 --out <file>        write the payload to a file
 --dry-run           never touch the network
